@@ -9,4 +9,7 @@ COPY . .
 
 RUN mkdir -p /app/data
 
-CMD ["python", "-u", "main.py"]
+EXPOSE 8321
+
+# Run Telegram bot in background and API in foreground (dashboard + cloudflared use :8321)
+CMD ["sh", "-c", "python -u main.py & exec python -u api.py"]

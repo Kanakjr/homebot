@@ -57,6 +57,7 @@ export type StreamEventType =
   | "tool_call"
   | "tool_result"
   | "response"
+  | "image"
   | "error"
   | "done";
 
@@ -67,11 +68,14 @@ export interface StreamEvent {
   content?: string;
   duration_ms?: number;
   id?: string;
+  filename?: string;
+  path?: string;
 }
 
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   toolCalls?: ToolCallInfo[];
+  images?: string[];
   timestamp: number;
 }

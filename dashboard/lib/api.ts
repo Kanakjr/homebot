@@ -92,6 +92,10 @@ export async function* streamChatEvents(
   }
 }
 
+export function getSnapshotUrl(filename: string): string {
+  return `${BASE_URL}/api/snapshots/${encodeURIComponent(filename)}`;
+}
+
 export async function getHealth(): Promise<HealthResponse> {
   return fetchJSON<HealthResponse>("/api/health");
 }

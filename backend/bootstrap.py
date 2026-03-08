@@ -12,7 +12,7 @@ from memory.episodic import EpisodicMemory
 from memory.semantic import SemanticMemory
 from memory.procedural import ProceduralMemory
 from tools.registry import ToolMap
-from tools.homeassistant import create_ha_tools
+from tools.homeassistant import create_ha_tools, create_ha_state_tools
 from tools.skills import create_skill_tools
 from tools.memory_tools import create_memory_tools
 from tools.n8n import create_n8n_tools
@@ -62,6 +62,7 @@ async def create_app(connect_ha: bool = True) -> App:
     await app.procedural.init()
 
     app.tool_map.register_many(create_ha_tools())
+    app.tool_map.register_many(create_ha_state_tools(app.state_cache))
     app.tool_map.register_many(create_skill_tools(app.procedural, app.tool_map))
     app.tool_map.register_many(create_memory_tools(app.semantic))
     app.tool_map.register_many(create_n8n_tools())

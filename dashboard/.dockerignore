@@ -1,0 +1,8 @@
+# Don't bake local env into the image; use docker-compose environment / build args
+.env
+.env.*
+!.env.example
+
+node_modules
+.next
+.git

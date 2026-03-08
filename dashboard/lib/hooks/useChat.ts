@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { streamChatEvents } from "@/lib/api";
+import { streamChatEvents, getSnapshotUrl } from "@/lib/api";
 import type { ChatMessage, StreamEvent, ToolCallInfo } from "@/lib/types";
 
 export function useChat(chatId: number = 0) {
@@ -27,6 +27,7 @@ export function useChat(chatId: number = 0) {
       abortRef.current = controller;
 
       const toolCalls: ToolCallInfo[] = [];
+      const images: string[] = [];
       let responseText = "";
 
       try {
@@ -52,6 +53,10 @@ export function useChat(chatId: number = 0) {
               tc.result = event.content;
               tc.duration_ms = event.duration_ms;
             }
+          } else if (event.type === "image") {
+            if (event.filename) {
+              images.push(getSnapshotUrl(event.filename));
+            }
           } else if (event.type === "response") {
             responseText = event.content ?? "";
           } else if (event.type === "error") {
@@ -68,6 +73,7 @@ export function useChat(chatId: number = 0) {
         role: "assistant",
         content: responseText,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        images: images.length > 0 ? images : undefined,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, assistantMsg]);

@@ -126,11 +126,12 @@ class Agent:
             f"{memory_block}\n"
             "\n"
             "Rules:\n"
-            "- Answer state questions from Live state above; do NOT call tools to read state.\n"
+            "- Check Live state first for quick answers. If the info isn't there, use ha_find_entities to search all 280+ entities.\n"
             "- Use ha_call_service for device actions (lights, fans, climate, media, etc.).\n"
-            "- For camera snapshots, use ha_get_camera_snapshot with the entity_id from the Cameras section above.\n"
+            "- For camera snapshots, always call ha_get_camera_snapshot -- the image will be displayed to the user automatically.\n"
             "- When the user describes a routine, create_skill. When they invoke one, execute_skill.\n"
             "- Use remember() when the user states a preference.\n"
+            "- Be resourceful: if you can't find something, search for it before saying you don't know.\n"
             "- Confirm before disruptive actions. Be concise.\n"
         )
 
@@ -260,7 +261,8 @@ class Agent:
                                 "duration_ms": duration,
                             }
                             for img_path in _extract_image_paths(content):
-                                yield {"type": "image", "path": img_path}
+                                filename = img_path.rsplit("/", 1)[-1]
+                                yield {"type": "image", "path": img_path, "filename": filename}
 
         except Exception:
             log.exception("Agent stream failed")

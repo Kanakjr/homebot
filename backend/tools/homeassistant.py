@@ -119,3 +119,51 @@ async def ha_fire_event(event_type: str, event_data: str = "{}") -> str:
 
 def create_ha_tools():
     return [ha_call_service, ha_get_camera_snapshot, ha_trigger_automation, ha_fire_event]
+
+
+def create_ha_state_tools(state_cache):
+    """Tools that query the live state cache (read-only)."""
+    from langchain_core.tools import StructuredTool
+
+    async def _find_entities(query: str, domain: str = "") -> str:
+        """Search Home Assistant entities by name, entity_id, or domain. Use this when
+        the user asks about a device, sensor, or entity not visible in the Live state summary.
+        query: Search term to match against entity_id or friendly_name (case-insensitive)
+        domain: Optional domain filter (e.g. sensor, light, switch, camera, automation)
+        """
+        query_lower = query.lower()
+        matches = []
+        for eid in state_cache.all_entity_ids():
+            if domain and not eid.startswith(domain + "."):
+                continue
+            entity = state_cache.get(eid)
+            if not entity:
+                continue
+            friendly = entity.get("attributes", {}).get("friendly_name", "")
+            if query_lower in eid.lower() or query_lower in friendly.lower():
+                state_val = entity.get("state", "unknown")
+                attrs = entity.get("attributes", {})
+                entry = {
+                    "entity_id": eid,
+                    "state": state_val,
+                    "friendly_name": friendly,
+                }
+                unit = attrs.get("unit_of_measurement")
+                if unit:
+                    entry["unit"] = unit
+                device_class = attrs.get("device_class")
+                if device_class:
+                    entry["device_class"] = device_class
+                matches.append(entry)
+        return json.dumps({"results": matches[:30], "total": len(matches)})
+
+    return [
+        StructuredTool.from_function(
+            coroutine=_find_entities,
+            name="ha_find_entities",
+            description=(
+                "Search Home Assistant entities by name or domain. "
+                "Use when the user asks about a device or entity not in the Live state summary."
+            ),
+        ),
+    ]

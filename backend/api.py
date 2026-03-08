@@ -23,12 +23,14 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import config
@@ -194,6 +196,20 @@ async def list_skills():
         )
         for s in skills
     ]
+
+
+SNAPSHOT_DIR = Path(tempfile.gettempdir()) / "homebot_snapshots"
+
+
+@app.get("/api/snapshots/{filename}")
+async def get_snapshot(filename: str):
+    """Serve a camera snapshot image."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    path = SNAPSHOT_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @app.get("/api/entities")

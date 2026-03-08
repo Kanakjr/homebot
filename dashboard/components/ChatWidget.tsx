@@ -217,6 +217,15 @@ export default function ChatWidget({
                 {msg.toolCalls?.map((tc, j) => (
                   <ToolCallBubble key={j} tc={tc} />
                 ))}
+                {msg.images?.map((url, j) => (
+                  <div key={`img-${j}`} className="max-w-[90%]">
+                    <img
+                      src={url}
+                      alt="Camera snapshot"
+                      className="rounded-lg border border-white/10 max-h-80 w-auto"
+                    />
+                  </div>
+                ))}
                 <div className="max-w-[90%] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-neutral-200">
                   <Markdown content={msg.content} />
                 </div>
