@@ -24,6 +24,12 @@ Ask about your home environment and get formatted sensor summaries with AI-power
 
 ![Sensor Summary](docs/screenshots/chat-sensor-summary.png)
 
+### Live Camera Snapshots
+
+Ask the agent to show you any Home Assistant camera and it grabs a live snapshot on demand, rendered directly in the chat. Monitor 3D prints, check security cameras, or peek at any connected feed -- all through natural language.
+
+![Camera Snapshot](docs/screenshots/chat-camera-snapshot.png)
+
 ### 35 Integrated Tools
 
 Home Assistant control, Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n workflows, learnable skills, and three-layer memory (episodic, semantic, procedural) -- all accessible via natural language.

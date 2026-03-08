@@ -506,7 +506,7 @@ async def test_entity_search(app, has_ha: bool):
     events = []
     async for ev in app.agent.run_stream(
         chat_id=9030,
-        user_message="What's the status of my printo 3D printer?",
+        user_message="What is my printo 3D printer nozzle and bed temperature right now?",
     ):
         events.append(ev)
 
@@ -515,13 +515,13 @@ async def test_entity_search(app, has_ha: bool):
     response_text = responses[-1]["content"] if responses else ""
 
     used_find = any(tc["name"] == "ha_find_entities" for tc in tool_calls)
-    mentions_printo = "printo" in response_text.lower() or "printer" in response_text.lower()
+    has_temps = any(w in response_text.lower() for w in ("nozzle", "bed", "temperature", "°c"))
 
-    passed = used_find and mentions_printo and len(response_text) > 20
+    passed = used_find and has_temps and len(response_text) > 20
     result(
-        "entity search (printo)",
+        "entity search (printo temps)",
         passed,
-        f"used_find={used_find}, mentions_printo={mentions_printo}, response={response_text[:80]}",
+        f"used_find={used_find}, has_temps={has_temps}, response={response_text[:80]}",
     )
 
 
