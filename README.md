@@ -4,6 +4,44 @@ Intelligent smart-home assistant powered by LangChain + Gemini, with live Home A
 
 ![Dashboard Home](docs/screenshots/dashboard-home.png)
 
+## Features
+
+### Natural Language Device Control
+
+Control any Home Assistant device through conversational commands. Set light colors, adjust brightness, toggle switches -- the agent resolves entity names and calls the right HA services automatically, with full tool-call transparency in the chat UI.
+
+![Device Control](docs/screenshots/chat-device-control.png)
+
+### Smart Media Management
+
+Get TV/movie recommendations and manage your media stack through chat. The agent searches Sonarr, Prowlarr, Jellyseerr, and Transmission, finds the right content, and kicks off downloads -- all in a single conversation.
+
+![Media Management](docs/screenshots/chat-media-management.png)
+
+### Sensor Data Analysis
+
+Ask about your home environment and get formatted sensor summaries with AI-powered analysis. The agent reads live HA sensor data and presents it as structured tables with contextual insights on air quality, temperature, humidity, and power consumption.
+
+![Sensor Summary](docs/screenshots/chat-sensor-summary.png)
+
+### 35 Integrated Tools
+
+Home Assistant control, Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n workflows, learnable skills, and three-layer memory (episodic, semantic, procedural) -- all accessible via natural language.
+
+![Tools](docs/screenshots/tools-page.png)
+
+### Live Home Awareness
+
+WebSocket subscription mirrors 280+ HA entities in memory. A relevance-filtered state summary is injected into every LLM call, so the agent always knows what is on, off, playing, or consuming power -- without needing to query.
+
+![Devices](docs/screenshots/devices-page.png)
+
+### Learnable Skills
+
+Teach the agent reusable routines via chat ("When I say goodnight, turn off all lights and set the fan to auto"). Skills are stored as procedural memory and can be triggered by name, cron schedules, or HA state changes.
+
+![Skills](docs/screenshots/skills-page.png)
+
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed system design, data flows, and component breakdowns.
@@ -21,39 +59,18 @@ homebot/
 
 ## Backend
 
-LangChain/LangGraph ReAct agent with three-layer memory (episodic, semantic, procedural) and 35 tools spanning Home Assistant, media services (Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin), n8n workflows, and skill management.
+LangChain/LangGraph ReAct agent with three-layer memory and 35 tools spanning Home Assistant, media services (Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin), n8n workflows, and skill management.
 
 Entry points:
 - `main.py` -- Telegram bot (production)
 - `api.py` -- FastAPI REST API with SSE streaming (default port 8321)
 - `cli.py` -- Interactive Rich CLI for development
 
-### Key Features
-
-- **Live HA state** -- WebSocket subscription mirrors 280+ entities in memory; relevance-filtered summary injected into every LLM call
-- **35 tools** -- Home Assistant control, Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n, skills, memory
-- **Three-layer memory** -- episodic (conversation history), semantic (facts/prefs), procedural (learned skills)
-- **Learnable skills** -- teach routines via chat ("When I say goodnight, turn off all lights")
-- **Proactive reactor** -- cron schedules and HA state-change triggers
-- **LangSmith tracing** -- full observability for every agent run
-
 ## Dashboard
 
-Next.js 15 frontend that consumes the backend API. Pure client-side -- no backend logic, no database, no LLM calls.
+Next.js 15 frontend with dark cyber-yellow theme, Geist Sans/Mono fonts, Tailwind CSS, and Framer Motion animations. Pure client-side -- no backend logic, no database, no LLM calls.
 
-### Pages
-
-| Page | Screenshot | Description |
-|------|-----------|-------------|
-| Dashboard | ![Dashboard](docs/screenshots/dashboard-home.png) | System overview -- entity count, active lights, media, sensor readings, quick chat |
-| Chat | ![Chat](docs/screenshots/chat-conversation.png) | Full-page AI chat with SSE streaming, tool call visibility |
-| Devices | ![Devices](docs/screenshots/devices-page.png) | Browse all 280 HA entities, filter by domain, search |
-| Skills | ![Skills](docs/screenshots/skills-page.png) | View and manage learned routines/automations |
-| Tools | ![Tools](docs/screenshots/tools-page.png) | Reference of all 35 registered tools with descriptions |
-
-### Design System
-
-Dark theme with cyber-yellow accents, Geist Sans/Mono fonts, shared with the portfolio site. Built with Tailwind CSS, Framer Motion animations, and Magic UI components.
+Pages: Dashboard (system overview), Chat (AI conversation with SSE streaming and tool visibility), Devices (280 HA entities with domain filters), Skills (learned routines), Tools (35 registered tools reference).
 
 ## Quick Start
 

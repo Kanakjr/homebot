@@ -115,7 +115,8 @@ def test_extract_text_mixed_list():
 
 async def test_simple_greeting(app):
     """Agent responds to a simple greeting (no tools needed)."""
-    response = await app.agent.run(chat_id=9000, user_message="Hi, say hello briefly")
+    resp = await app.agent.run(chat_id=9000, user_message="Hi, say hello briefly")
+    response = resp.text
     passed = len(response) > 0 and response != "I couldn't generate a response."
     result("simple greeting", passed, f"got {len(response)} chars")
 
@@ -232,10 +233,10 @@ async def test_conversation_memory(app):
     await app.episodic.clear(cid)
 
     await app.agent.run(chat_id=cid, user_message="My name is TestUser")
-    response = await app.agent.run(chat_id=cid, user_message="What's my name?")
+    resp = await app.agent.run(chat_id=cid, user_message="What's my name?")
 
-    passed = "testuser" in response.lower() or "TestUser" in response
-    result("conversation memory", passed, f"response={response[:80]}")
+    passed = "testuser" in resp.text.lower() or "TestUser" in resp.text
+    result("conversation memory", passed, f"response={resp.text[:80]}")
 
     await app.episodic.clear(cid)
 
@@ -270,7 +271,8 @@ async def test_run_and_stream_parity(app):
     cid_stream = 9008
     msg = "What is 2 + 2? Reply with just the number."
 
-    text_run = await app.agent.run(chat_id=cid_run, user_message=msg)
+    resp = await app.agent.run(chat_id=cid_run, user_message=msg)
+    text_run = resp.text
 
     stream_events = []
     async for ev in app.agent.run_stream(chat_id=cid_stream, user_message=msg):

@@ -63,8 +63,16 @@ async def handle_message(update: Update, context):
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    response = await app_ctx.agent.run(chat_id=chat_id, user_message=user_msg)
+    result = await app_ctx.agent.run(chat_id=chat_id, user_message=user_msg)
 
+    for img_path in result.images:
+        try:
+            with open(img_path, "rb") as f:
+                await update.message.reply_photo(photo=f)
+        except Exception:
+            log.warning("Failed to send snapshot photo: %s", img_path)
+
+    response = result.text
     if len(response) > 4096:
         for i in range(0, len(response), 4096):
             await update.message.reply_text(response[i : i + 4096])
@@ -83,11 +91,18 @@ async def handle_photo(update: Update, context):
     image_bytes = await file.download_as_bytearray()
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-    response = await app_ctx.agent.run(
+    result = await app_ctx.agent.run(
         chat_id=chat_id, user_message=caption, image_bytes=bytes(image_bytes),
     )
 
-    await update.message.reply_text(response)
+    for img_path in result.images:
+        try:
+            with open(img_path, "rb") as f:
+                await update.message.reply_photo(photo=f)
+        except Exception:
+            log.warning("Failed to send snapshot photo: %s", img_path)
+
+    await update.message.reply_text(result.text)
 
 
 async def post_init(application: Application):

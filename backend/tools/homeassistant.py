@@ -6,6 +6,8 @@ HA REST API for actions that change state.
 
 import json
 import logging
+import tempfile
+from pathlib import Path
 
 import aiohttp
 from langchain_core.tools import tool
@@ -64,7 +66,18 @@ async def ha_get_camera_snapshot(entity_id: str) -> str:
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=_headers()) as resp:
             if resp.status == 200:
-                return json.dumps({"status": "ok", "message": f"Camera snapshot from {entity_id} retrieved.", "entity_id": entity_id})
+                image_bytes = await resp.read()
+                snapshot_dir = Path(tempfile.gettempdir()) / "homebot_snapshots"
+                snapshot_dir.mkdir(exist_ok=True)
+                safe_name = entity_id.replace(".", "_")
+                path = snapshot_dir / f"{safe_name}.jpg"
+                path.write_bytes(image_bytes)
+                return json.dumps({
+                    "status": "ok",
+                    "message": f"Camera snapshot from {entity_id} captured and saved.",
+                    "entity_id": entity_id,
+                    "image_path": str(path),
+                })
             return json.dumps({"status": "error", "code": resp.status})
 
 

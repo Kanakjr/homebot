@@ -9,8 +9,10 @@ Exposes two run methods:
 """
 
 import base64
+import json
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
@@ -29,6 +31,12 @@ log = logging.getLogger("homebot.agent")
 MAX_RECURSION = 25
 
 
+@dataclass
+class AgentResponse:
+    text: str
+    images: list[str] = field(default_factory=list)
+
+
 def _extract_text(content) -> str:
     """Extract text from AIMessage content which may be str or list of blocks."""
     if isinstance(content, str):
@@ -42,6 +50,17 @@ def _extract_text(content) -> str:
                 parts.append(block)
         return "\n".join(parts)
     return ""
+
+
+def _extract_image_paths(content: str) -> list[str]:
+    """Extract image_path values from JSON tool result strings."""
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict) and "image_path" in data:
+            return [data["image_path"]]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
 
 
 class Agent:
@@ -109,6 +128,7 @@ class Agent:
             "Rules:\n"
             "- Answer state questions from Live state above; do NOT call tools to read state.\n"
             "- Use ha_call_service for device actions (lights, fans, climate, media, etc.).\n"
+            "- For camera snapshots, use ha_get_camera_snapshot with the entity_id from the Cameras section above.\n"
             "- When the user describes a routine, create_skill. When they invoke one, execute_skill.\n"
             "- Use remember() when the user states a preference.\n"
             "- Confirm before disruptive actions. Be concise.\n"
@@ -141,13 +161,14 @@ class Agent:
         user_message: str,
         image_bytes: bytes | None = None,
         system_prompt_override: str | None = None,
-    ) -> str:
+    ) -> AgentResponse:
         if not self._agent:
             self.build_agent()
 
         system_prompt = system_prompt_override or await self._build_system_prompt()
         history = await self.episodic.get_history(chat_id, limit=10)
         messages = self._build_messages(history, system_prompt, user_message, image_bytes)
+        images: list[str] = []
 
         try:
             result = await self._agent.ainvoke(
@@ -163,13 +184,18 @@ class Agent:
                     if text:
                         final_text = text
                         break
+
+            for msg in out_messages:
+                if isinstance(msg, ToolMessage) and msg.content:
+                    images.extend(_extract_image_paths(msg.content))
+
         except Exception:
             log.exception("Agent invocation failed")
             final_text = "Sorry, something went wrong processing your request."
 
         await self.episodic.add(chat_id, "user", user_message)
         await self.episodic.add(chat_id, "model", final_text)
-        return final_text
+        return AgentResponse(text=final_text, images=images)
 
     async def run_stream(
         self,
@@ -226,12 +252,15 @@ class Agent:
                             call_id = getattr(msg, "tool_call_id", "")
                             t_start = pending_tool_times.pop(call_id, None)
                             duration = int((time.monotonic() - t_start) * 1000) if t_start else 0
+                            content = msg.content or ""
                             yield {
                                 "type": "tool_result",
                                 "name": msg.name or "",
-                                "content": msg.content or "",
+                                "content": content,
                                 "duration_ms": duration,
                             }
+                            for img_path in _extract_image_paths(content):
+                                yield {"type": "image", "path": img_path}
 
         except Exception:
             log.exception("Agent stream failed")

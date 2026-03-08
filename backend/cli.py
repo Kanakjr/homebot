@@ -222,6 +222,9 @@ async def chat_turn(app, chat_id: int, user_input: str):
             render_response(event["content"])
             got_response = True
 
+        elif etype == "image":
+            console.print(f"      [dim]Snapshot saved:[/dim] {event['path']}")
+
         elif etype == "error":
             console.print(f"\n  [tool.error]{event['content']}[/tool.error]")
             got_response = True

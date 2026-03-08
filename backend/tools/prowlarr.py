@@ -20,6 +20,7 @@ def _headers() -> dict:
 @tool
 async def prowlarr_search(query: str, indexer_ids: str = "", categories: str = "") -> str:
     """Search across all Prowlarr indexers for torrents/usenet releases.
+    Returns results with download_url (magnet link or torrent URL) ready for transmission_add_torrent.
     query: Search term (movie name, show name, etc.)
     indexer_ids: Comma-separated indexer IDs to search (empty = all)
     categories: Comma-separated category IDs to filter (e.g. 2000 for Movies, 5000 for TV)
@@ -36,19 +37,21 @@ async def prowlarr_search(query: str, indexer_ids: str = "", categories: str = "
             if resp.status != 200:
                 return json.dumps({"error": f"HTTP {resp.status}", "detail": (await resp.text())[:300]})
             results = await resp.json()
-            summary = [
-                {
+            summary = []
+            for r in results[:15]:
+                download_url = r.get("downloadUrl", "")
+                guid = r.get("guid", "")
+                if not download_url and guid.startswith("magnet:"):
+                    download_url = guid
+                summary.append({
                     "title": r.get("title"),
                     "indexer": r.get("indexer"),
                     "size_mb": round(r.get("size", 0) / 1024 / 1024),
                     "seeders": r.get("seeders"),
                     "leechers": r.get("leechers"),
-                    "download_url": r.get("downloadUrl", ""),
-                    "guid": r.get("guid", ""),
+                    "download_url": download_url,
                     "categories": [c.get("name") for c in r.get("categories", [])],
-                }
-                for r in results[:15]
-            ]
+                })
             return json.dumps({"results": summary, "count": len(summary)})
 
 

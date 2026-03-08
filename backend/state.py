@@ -217,6 +217,9 @@ class StateCache:
                 extra = f" ({', '.join(extra_parts)})" if extra_parts else ""
                 _add("Climate", f"{friendly}: {state_val}{extra}")
 
+            elif domain == "camera":
+                _add("Cameras", f"{friendly} ({state_val}) [entity_id: {eid}]")
+
             elif domain == "media_player":
                 if state_val not in ("playing", "paused"):
                     continue

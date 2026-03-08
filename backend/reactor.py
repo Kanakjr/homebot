@@ -213,12 +213,12 @@ class Reactor:
             prompt += f"\n\nRecent event log:\n{log_text}"
 
         chat_id = self.allowed_users[0] if self.allowed_users else 0
-        response = await self.agent.run(
+        result = await self.agent.run(
             chat_id=chat_id,
             user_message=prompt,
             system_prompt_override=await self.agent._build_system_prompt(),
         )
-        return response
+        return result.text
 
     async def _prune_event_log(self):
         await self.procedural.prune_event_log(keep_hours=72)
