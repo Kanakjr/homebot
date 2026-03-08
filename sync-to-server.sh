@@ -1,35 +1,49 @@
 #!/bin/bash
-# Sync differences from local workspace to HomeServer
+# Sync between local workspace and HomeServer
 # Only copies changed files, ignores venv/node_modules
 #
 # Usage:
-#   ./sync-to-server.sh           # excludes .git (default)
-#   ./sync-to-server.sh --git     # includes .git in sync
+#   ./sync-to-server.sh                # push local -> server (default)
+#   ./sync-to-server.sh --pull         # pull server -> local
+#   ./sync-to-server.sh --git          # include .git in sync
+#   ./sync-to-server.sh --pull --git   # pull with .git
 
-SRC="/Users/kanakd/Workspace/homebot/"
-DEST="/Volumes/kanakjr/HomeServer/Apps/homebot/"
+LOCAL="/Users/kanakd/Workspace/homebot/"
+SERVER="/Volumes/kanakjr/HomeServer/Apps/homebot/"
 
 SYNC_GIT=false
+PULL=false
 for arg in "$@"; do
-  if [ "$arg" = "--git" ]; then
-    SYNC_GIT=true
-  fi
+  case "$arg" in
+    --git)  SYNC_GIT=true ;;
+    --pull) PULL=true ;;
+  esac
 done
 
-# Check if destination is reachable
-if [ ! -d "$DEST" ]; then
-  echo "Error: Destination not found at $DEST"
+if [ ! -d "$SERVER" ]; then
+  echo "Error: Server path not found at $SERVER"
   echo "Make sure the volume is mounted."
   exit 1
 fi
 
-echo "Syncing changes from:"
-echo "  Source: $SRC"
-echo "  Dest:   $DEST"
-if [ "$SYNC_GIT" = true ]; then
-  echo "  Git:    included"
+if [ "$PULL" = true ]; then
+  SRC="$SERVER"
+  DEST="$LOCAL"
+  DIRECTION="pull (server -> local)"
 else
-  echo "  Git:    excluded (use --git to include)"
+  SRC="$LOCAL"
+  DEST="$SERVER"
+  DIRECTION="push (local -> server)"
+fi
+
+echo "Syncing changes:"
+echo "  Direction: $DIRECTION"
+echo "  Source:    $SRC"
+echo "  Dest:     $DEST"
+if [ "$SYNC_GIT" = true ]; then
+  echo "  Git:      included"
+else
+  echo "  Git:      excluded (use --git to include)"
 fi
 echo ""
 
