@@ -1,14 +1,36 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { streamChatEvents, getSnapshotUrl } from "@/lib/api";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { streamChatEvents, getSnapshotUrl, getHistory, clearHistory } from "@/lib/api";
 import type { ChatMessage, StreamEvent, ToolCallInfo } from "@/lib/types";
 
-export function useChat(chatId: number = 0) {
+export function useChat(chatId: number) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentEvents, setCurrentEvents] = useState<StreamEvent[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMessages([]);
+    setHistoryLoaded(false);
+
+    getHistory(chatId).then((data) => {
+      if (cancelled) return;
+      const restored: ChatMessage[] = data.messages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.text,
+        timestamp: new Date(m.ts + "Z").getTime(),
+      }));
+      setMessages(restored);
+      setHistoryLoaded(true);
+    }).catch(() => {
+      if (!cancelled) setHistoryLoaded(true);
+    });
+
+    return () => { cancelled = true; };
+  }, [chatId]);
 
   const send = useCallback(
     async (text: string) => {
@@ -89,10 +111,11 @@ export function useChat(chatId: number = 0) {
     setIsStreaming(false);
   }, []);
 
-  const clear = useCallback(() => {
+  const clear = useCallback(async () => {
+    await clearHistory(chatId).catch(() => {});
     setMessages([]);
     setCurrentEvents([]);
-  }, []);
+  }, [chatId]);
 
-  return { messages, isStreaming, currentEvents, send, stop, clear };
+  return { messages, isStreaming, currentEvents, historyLoaded, send, stop, clear };
 }

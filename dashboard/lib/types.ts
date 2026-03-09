@@ -36,6 +36,62 @@ export interface SkillInfo {
   active: boolean;
 }
 
+export interface SkillDetail {
+  id: string;
+  name: string;
+  description: string;
+  trigger: Record<string, unknown>;
+  mode: string;
+  ai_prompt: string;
+  actions: unknown[];
+  notify: boolean;
+  active: boolean;
+}
+
+export interface SkillCreate {
+  id: string;
+  name: string;
+  description: string;
+  trigger?: Record<string, unknown>;
+  mode?: string;
+  ai_prompt?: string;
+  actions?: unknown[];
+  notify?: boolean;
+}
+
+export interface SkillUpdate {
+  name?: string;
+  description?: string;
+  trigger?: Record<string, unknown>;
+  mode?: string;
+  ai_prompt?: string;
+  actions?: unknown[];
+  notify?: boolean;
+}
+
+export interface EventLogEntry {
+  entity_id: string;
+  old_state: string;
+  new_state: string;
+  event_type: string;
+  details: string;
+  ts: string;
+}
+
+export interface EventsResponse {
+  events: EventLogEntry[];
+  hours: number;
+}
+
+export interface MemoryFact {
+  key: string;
+  value: string;
+}
+
+export interface MemoryResponse {
+  facts: MemoryFact[];
+}
+
 export interface EntityInfo {
   entity_id: string;
   state: string;
@@ -78,4 +134,56 @@ export interface ChatMessage {
   toolCalls?: ToolCallInfo[];
   images?: string[];
   timestamp: number;
+}
+
+export interface ThreadInfo {
+  chat_id: number;
+  message_count: number;
+  last_ts: string;
+  last_message: string;
+}
+
+export interface ThreadsResponse {
+  threads: ThreadInfo[];
+}
+
+export interface HistoryMessage {
+  role: string;
+  text: string;
+  ts: string;
+}
+
+export interface HistoryResponse {
+  chat_id: number;
+  messages: HistoryMessage[];
+}
+
+// --- Dashboard config types ---
+
+export type WidgetSize = "sm" | "md" | "lg" | "full";
+
+export type WidgetType =
+  | "stat"
+  | "toggle_group"
+  | "sensor_grid"
+  | "camera"
+  | "quick_actions"
+  | "weather"
+  | "scene_buttons";
+
+export interface DashboardWidget {
+  id: string;
+  type: WidgetType;
+  title: string;
+  config: Record<string, unknown>;
+  size: WidgetSize;
+}
+
+export interface DashboardConfig {
+  widgets: DashboardWidget[];
+}
+
+export interface DashboardEditResponse {
+  config: DashboardConfig;
+  message: string;
 }

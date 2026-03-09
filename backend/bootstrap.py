@@ -11,6 +11,7 @@ from agent import Agent
 from memory.episodic import EpisodicMemory
 from memory.semantic import SemanticMemory
 from memory.procedural import ProceduralMemory
+from dashboard_config import DashboardConfig
 from tools.registry import ToolMap
 from tools.homeassistant import create_ha_tools, create_ha_state_tools
 from tools.skills import create_skill_tools
@@ -31,6 +32,7 @@ class App:
     __slots__ = (
         "agent", "state_cache", "tool_map",
         "episodic", "semantic", "procedural",
+        "dashboard_config",
     )
 
     def __init__(self):
@@ -38,6 +40,7 @@ class App:
         self.episodic = EpisodicMemory(config.DB_PATH)
         self.semantic = SemanticMemory(config.DB_PATH)
         self.procedural = ProceduralMemory(config.DB_PATH)
+        self.dashboard_config = DashboardConfig(config.DB_PATH)
         self.tool_map = ToolMap()
         self.agent = Agent(
             state_cache=self.state_cache,
@@ -60,6 +63,7 @@ async def create_app(connect_ha: bool = True) -> App:
     await app.episodic.init()
     await app.semantic.init()
     await app.procedural.init()
+    await app.dashboard_config.init()
 
     app.tool_map.register_many(create_ha_tools())
     app.tool_map.register_many(create_ha_state_tools(app.state_cache))
@@ -87,4 +91,5 @@ async def shutdown_app(app: App):
     await app.episodic.close()
     await app.semantic.close()
     await app.procedural.close()
+    await app.dashboard_config.close()
     log.info("App shut down cleanly")

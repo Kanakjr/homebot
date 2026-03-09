@@ -153,17 +153,20 @@ interface ChatWidgetProps {
   className?: string;
   chatId?: number;
   compact?: boolean;
+  onConversationUpdate?: () => void;
 }
 
 export default function ChatWidget({
   className,
   chatId = 0,
   compact = false,
+  onConversationUpdate,
 }: ChatWidgetProps) {
-  const { messages, isStreaming, currentEvents, send, stop, clear } =
+  const { messages, isStreaming, currentEvents, historyLoaded, send, stop, clear } =
     useChat(chatId);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const prevMsgCount = useRef(0);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -172,11 +175,23 @@ export default function ChatWidget({
     });
   }, [messages, currentEvents]);
 
+  useEffect(() => {
+    if (messages.length > prevMsgCount.current && prevMsgCount.current > 0) {
+      onConversationUpdate?.();
+    }
+    prevMsgCount.current = messages.length;
+  }, [messages.length, onConversationUpdate]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
     send(input);
     setInput("");
+  };
+
+  const handleClear = () => {
+    clear();
+    onConversationUpdate?.();
   };
 
   return (
@@ -190,7 +205,7 @@ export default function ChatWidget({
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
         <h3 className="text-sm font-mono text-neutral-300">AI Chat</h3>
         <button
-          onClick={clear}
+          onClick={handleClear}
           className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
         >
           Clear
@@ -198,7 +213,12 @@ export default function ChatWidget({
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.length === 0 && !isStreaming && (
+        {!historyLoaded && (
+          <p className="text-sm text-neutral-500 text-center py-8 animate-pulse">
+            Loading history...
+          </p>
+        )}
+        {historyLoaded && messages.length === 0 && !isStreaming && (
           <p className="text-sm text-neutral-500 text-center py-8">
             Ask HomeBotAI anything about your home.
           </p>

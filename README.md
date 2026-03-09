@@ -2,9 +2,13 @@
 
 Intelligent smart-home assistant powered by LangChain + Gemini, with live Home Assistant awareness, learnable skills, proactive automations, and a modern dashboard UI.
 
-![Dashboard Home](docs/screenshots/dashboard-home.png)
+![Dashboard with AI Editor](docs/screenshots/dashboard-ai-editor.png)
 
 ## Features
+
+### AI-Customizable Dashboard
+
+Widget-based homepage driven by a JSON config. A floating AI assistant (bottom-right) lets you customize the layout via natural language -- add widgets, remove cards, rearrange sections. Changes are persisted in SQLite and survive restarts. Widgets include stat cards, toggle groups, sensor grids, camera previews, scene buttons, and quick actions.
 
 ### Natural Language Device Control
 
@@ -76,7 +80,7 @@ Entry points:
 
 Next.js 15 frontend with dark cyber-yellow theme, Geist Sans/Mono fonts, Tailwind CSS, and Framer Motion animations. Pure client-side -- no backend logic, no database, no LLM calls.
 
-Pages: Dashboard (system overview), Chat (AI conversation with SSE streaming and tool visibility), Devices (280 HA entities with domain filters), Skills (learned routines), Tools (35 registered tools reference).
+Pages: Dashboard (AI-customizable widget grid), Chat (AI conversation with SSE streaming and tool visibility), Devices (280 HA entities with domain filters), Cameras (live snapshots), Activity (event log), Skills (learned routines), Memory (semantic facts), Tools (35 registered tools reference).
 
 ## Quick Start
 
@@ -181,5 +185,12 @@ python tests/test_agent.py
 | GET | `/api/tools` | List all registered tools |
 | GET | `/api/skills` | List learned skills |
 | GET | `/api/entities` | HA entities grouped by domain |
+| POST | `/api/entities/{id}/toggle` | Toggle a switch/light/fan entity |
+| GET | `/api/events` | Event log with time filtering |
+| GET | `/api/memory` | Semantic memory facts |
+| POST | `/api/cameras/{id}/snapshot` | Request a camera snapshot |
+| GET | `/api/dashboard` | Dashboard widget config |
+| PUT | `/api/dashboard` | Save dashboard config |
+| POST | `/api/dashboard/edit` | AI-edit dashboard layout via natural language |
 
 Swagger docs: `http://localhost:8321/docs`

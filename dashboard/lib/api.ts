@@ -3,8 +3,16 @@ import type {
   ChatResponse,
   HealthResponse,
   ToolInfo,
-  SkillInfo,
+  SkillDetail,
+  SkillCreate,
+  SkillUpdate,
   EntitiesResponse,
+  ThreadsResponse,
+  HistoryResponse,
+  EventsResponse,
+  MemoryResponse,
+  DashboardConfig,
+  DashboardEditResponse,
 } from "./types";
 
 const BASE_URL =
@@ -104,10 +112,102 @@ export async function getTools(): Promise<ToolInfo[]> {
   return fetchJSON<ToolInfo[]>("/api/tools");
 }
 
-export async function getSkills(): Promise<SkillInfo[]> {
-  return fetchJSON<SkillInfo[]>("/api/skills");
+export async function getSkills(): Promise<SkillDetail[]> {
+  return fetchJSON<SkillDetail[]>("/api/skills");
+}
+
+export async function createSkill(skill: SkillCreate): Promise<SkillDetail> {
+  return fetchJSON<SkillDetail>("/api/skills", {
+    method: "POST",
+    body: JSON.stringify(skill),
+  });
+}
+
+export async function updateSkill(id: string, updates: SkillUpdate): Promise<SkillDetail> {
+  return fetchJSON<SkillDetail>(`/api/skills/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteSkill(id: string): Promise<void> {
+  await fetchJSON(`/api/skills/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function toggleSkill(id: string, active: boolean): Promise<SkillDetail> {
+  return fetchJSON<SkillDetail>(
+    `/api/skills/${encodeURIComponent(id)}/toggle?active=${active}`,
+    { method: "POST" },
+  );
 }
 
 export async function getEntities(): Promise<EntitiesResponse> {
   return fetchJSON<EntitiesResponse>("/api/entities");
+}
+
+export async function getThreads(): Promise<ThreadsResponse> {
+  return fetchJSON<ThreadsResponse>("/api/chat/threads");
+}
+
+export async function getHistory(chatId: number, limit = 50): Promise<HistoryResponse> {
+  return fetchJSON<HistoryResponse>(`/api/chat/${chatId}/history?limit=${limit}`);
+}
+
+export async function clearHistory(chatId: number): Promise<void> {
+  await fetch(`${BASE_URL}/api/chat/${chatId}/history`, { method: "DELETE" });
+}
+
+export async function toggleEntity(
+  entityId: string,
+  action: "toggle" | "turn_on" | "turn_off" = "toggle",
+): Promise<{ status: string; entity_id: string; action: string }> {
+  return fetchJSON(`/api/entities/${encodeURIComponent(entityId)}/toggle`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
+}
+
+export async function takeCameraSnapshot(
+  entityId: string,
+): Promise<{ status: string; filename: string; entity_id: string }> {
+  return fetchJSON(`/api/cameras/${encodeURIComponent(entityId)}/snapshot`, {
+    method: "POST",
+  });
+}
+
+export async function getEvents(hours = 24, limit = 200): Promise<EventsResponse> {
+  return fetchJSON<EventsResponse>(`/api/events?hours=${hours}&limit=${limit}`);
+}
+
+export async function getMemory(): Promise<MemoryResponse> {
+  return fetchJSON<MemoryResponse>("/api/memory");
+}
+
+export async function addMemory(key: string, value: string): Promise<void> {
+  await fetchJSON("/api/memory", {
+    method: "POST",
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+export async function deleteMemory(key: string): Promise<void> {
+  await fetchJSON(`/api/memory/${encodeURIComponent(key)}`, { method: "DELETE" });
+}
+
+export async function getDashboardConfig(): Promise<DashboardConfig> {
+  return fetchJSON<DashboardConfig>("/api/dashboard");
+}
+
+export async function saveDashboardConfig(config: DashboardConfig): Promise<void> {
+  await fetchJSON("/api/dashboard", {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+}
+
+export async function editDashboard(message: string): Promise<DashboardEditResponse> {
+  return fetchJSON<DashboardEditResponse>("/api/dashboard/edit", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
 }

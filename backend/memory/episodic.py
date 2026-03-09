@@ -47,11 +47,34 @@ class EpisodicMemory:
 
     async def get_history(self, chat_id: int, limit: int = 20) -> list[dict]:
         cursor = await self._db.execute(
-            "SELECT role, text FROM episodic WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
+            "SELECT role, text, ts FROM episodic WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
             (chat_id, limit),
         )
         rows = await cursor.fetchall()
-        return [{"role": r[0], "text": r[1]} for r in reversed(rows)]
+        return [{"role": r[0], "text": r[1], "ts": r[2]} for r in reversed(rows)]
+
+    async def list_threads(self) -> list[dict]:
+        cursor = await self._db.execute("""
+            SELECT chat_id,
+                   COUNT(*) as message_count,
+                   MAX(ts) as last_ts,
+                   (SELECT text FROM episodic e2
+                    WHERE e2.chat_id = e1.chat_id
+                    ORDER BY e2.id DESC LIMIT 1) as last_message
+            FROM episodic e1
+            GROUP BY chat_id
+            ORDER BY MAX(ts) DESC
+        """)
+        rows = await cursor.fetchall()
+        return [
+            {
+                "chat_id": r[0],
+                "message_count": r[1],
+                "last_ts": r[2],
+                "last_message": r[3],
+            }
+            for r in rows
+        ]
 
     async def _trim(self, chat_id: int):
         cursor = await self._db.execute(

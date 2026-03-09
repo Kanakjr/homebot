@@ -133,6 +133,7 @@ export default function DevicesPage() {
                   key={entity.entity_id}
                   entity={entity}
                   domain={domain}
+                  onToggled={refresh}
                 />
               ))}
             </div>
