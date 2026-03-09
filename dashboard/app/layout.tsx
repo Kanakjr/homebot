@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import Sidebar from "@/components/Sidebar";
@@ -19,6 +19,14 @@ export const metadata: Metadata = {
   description: "Smart home AI dashboard -- monitor, control, and chat with your home",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#0a0a0a",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -37,7 +45,7 @@ export default function RootLayout({
         >
           <div className="flex h-screen overflow-hidden">
             <Sidebar />
-            <main className="flex-1 overflow-y-auto">
+            <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
               {children}
             </main>
           </div>

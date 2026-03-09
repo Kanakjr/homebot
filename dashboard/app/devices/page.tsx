@@ -49,7 +49,7 @@ export default function DevicesPage() {
     .filter((d) => d.entities.length > 0);
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 max-w-7xl">
       <BlurFade delay={0}>
         <div className="flex items-center justify-between">
           <div>

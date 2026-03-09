@@ -47,7 +47,7 @@ function ToggleRow({
 
   return (
     <div
-      className="flex items-center justify-between gap-2 rounded-md border border-white/5 bg-white/[0.02] px-2.5 py-2 cursor-pointer hover:border-white/10 transition-colors"
+      className="flex items-center justify-between gap-2 rounded-md border border-white/5 bg-white/[0.02] px-2.5 py-2.5 sm:py-2 cursor-pointer hover:border-white/10 active:bg-white/5 transition-colors"
       onClick={handleToggle}
     >
       <span className="text-sm text-neutral-200 truncate">

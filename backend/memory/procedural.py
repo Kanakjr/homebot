@@ -161,6 +161,35 @@ class ProceduralMemory:
         )
         await self._db.commit()
 
+    async def get_energy_history(self, hours: int = 24) -> list[dict]:
+        """Return power/energy sensor state changes for the given time window."""
+        if not self._db:
+            return []
+        cursor = await self._db.execute(
+            """
+            SELECT entity_id, old_state, new_state, ts
+            FROM event_log
+            WHERE event_type = 'state_change'
+              AND ts >= datetime('now', ?)
+              AND entity_id LIKE 'sensor.%'
+            ORDER BY ts ASC
+            """,
+            (f"-{hours} hours",),
+        )
+        rows = await cursor.fetchall()
+        results = []
+        for entity_id, old_state, new_state, ts in rows:
+            try:
+                val = float(new_state)
+            except (ValueError, TypeError):
+                continue
+            results.append({
+                "entity_id": entity_id,
+                "value": round(val, 2),
+                "ts": ts,
+            })
+        return results
+
     async def ensure_default_skills(self):
         """Create built-in digest/notification skills if they don't exist."""
         defaults = [

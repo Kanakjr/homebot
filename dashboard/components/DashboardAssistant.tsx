@@ -87,7 +87,7 @@ export default function DashboardAssistant({ onConfigUpdate }: DashboardAssistan
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-cyber-yellow/90 text-black shadow-lg shadow-cyber-yellow/20 hover:bg-cyber-yellow transition-colors"
+          className="fixed bottom-4 right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-cyber-yellow/90 text-black shadow-lg shadow-cyber-yellow/20 hover:bg-cyber-yellow transition-colors sm:bottom-6 sm:right-6"
           aria-label="Open dashboard assistant"
         >
           <svg
@@ -107,7 +107,7 @@ export default function DashboardAssistant({ onConfigUpdate }: DashboardAssistan
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 flex w-[380px] flex-col rounded-2xl border border-white/10 bg-neutral-950/95 shadow-2xl backdrop-blur-xl">
+        <div className="fixed inset-x-0 bottom-0 z-50 flex flex-col border-t border-white/10 bg-neutral-950/95 shadow-2xl backdrop-blur-xl sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] sm:rounded-2xl sm:border">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div className="flex items-center gap-2">

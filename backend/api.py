@@ -569,6 +569,23 @@ async def edit_dashboard(req: DashboardEditRequest):
     }
 
 
+@app.get("/api/energy")
+async def get_energy(hours: int = 24):
+    """Current energy sensors + historical state change data."""
+    current = _app_ctx.state_cache.get_energy_sensors()
+    history = await _app_ctx.procedural.get_energy_history(hours=hours)
+
+    # Filter history to only include entities that are power/energy sensors
+    energy_eids = {s["entity_id"] for s in current if s["device_class"] in ("power", "energy")}
+    filtered_history = [h for h in history if h["entity_id"] in energy_eids]
+
+    return {
+        "current": current,
+        "history": filtered_history,
+        "hours": hours,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="HomeBotAI REST API")
     parser.add_argument("--port", type=int, default=8321, help="Port (default: 8321)")

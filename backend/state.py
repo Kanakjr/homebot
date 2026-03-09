@@ -333,6 +333,34 @@ class StateCache:
             lines.append(f"{section_name}: " + " | ".join(items))
         return "\n".join(lines) if lines else "No notable state."
 
+    _ENERGY_CLASSES = frozenset({"power", "energy", "battery"})
+
+    def get_energy_sensors(self) -> list[dict]:
+        """Return all power, energy, and battery sensors with current values."""
+        results = []
+        for eid, entity in sorted(self._states.items()):
+            if not eid.startswith("sensor."):
+                continue
+            attrs = entity.get("attributes", {})
+            dev_class = attrs.get("device_class", "")
+            if dev_class not in self._ENERGY_CLASSES:
+                continue
+            state_val = entity.get("state", "")
+            if state_val in ("unavailable", "unknown"):
+                continue
+            try:
+                val = float(state_val)
+            except (ValueError, TypeError):
+                continue
+            results.append({
+                "entity_id": eid,
+                "friendly_name": attrs.get("friendly_name", eid),
+                "device_class": dev_class,
+                "state": round(val, 2),
+                "unit": attrs.get("unit_of_measurement", ""),
+            })
+        return results
+
     def _detect_anomalies(self) -> list[str]:
         """Flag unusual states worth highlighting to the agent."""
         alerts = []

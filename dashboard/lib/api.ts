@@ -13,6 +13,7 @@ import type {
   MemoryResponse,
   DashboardConfig,
   DashboardEditResponse,
+  EnergyResponse,
 } from "./types";
 
 const BASE_URL =
@@ -210,4 +211,8 @@ export async function editDashboard(message: string): Promise<DashboardEditRespo
     method: "POST",
     body: JSON.stringify({ message }),
   });
+}
+
+export async function getEnergy(hours = 24): Promise<EnergyResponse> {
+  return fetchJSON<EnergyResponse>(`/api/energy?hours=${hours}`);
 }

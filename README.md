@@ -60,6 +60,12 @@ Automatic Telegram alerts without asking -- 3D printer finished, battery critica
 
 Scheduled daily and weekly AI-generated summaries sent via Telegram. The daily digest (10 PM) covers activity, energy, and notable events. The weekly report (Sunday 8 PM) analyzes power trends and device usage patterns.
 
+### Energy Dashboard
+
+Track power consumption, energy usage, and battery levels across all your devices. Live power gauges show real-time wattage with color-coded thresholds, area charts visualize consumption over configurable time ranges (6h to 7d), and battery cards surface low devices at a glance. Data comes from HA power/energy/battery sensors and the event log history.
+
+![Energy Dashboard](docs/screenshots/energy-page.png)
+
 ### Learnable Skills
 
 Teach the agent reusable routines via chat ("When I say goodnight, turn off all lights and set the fan to auto"). Skills are stored as procedural memory and can be triggered by name, cron schedules, or HA state changes.
@@ -104,7 +110,9 @@ Entry points:
 
 Next.js 15 frontend with dark cyber-yellow theme, Geist Sans/Mono fonts, Tailwind CSS, and Framer Motion animations. Pure client-side -- no backend logic, no database, no LLM calls.
 
-Pages: Dashboard (AI-customizable widget grid), Chat (AI conversation with SSE streaming and tool visibility), Devices (280 HA entities with domain filters), Cameras (live snapshots), Activity (event log), Skills (learned routines), Memory (semantic facts), Tools (35 registered tools reference).
+Fully mobile-responsive with slide-out drawer navigation on phones/tablets.
+
+Pages: Dashboard (AI-customizable widget grid), Chat (AI conversation with SSE streaming and tool visibility), Devices (280 HA entities with domain filters), Cameras (live snapshots), Activity (event log), Energy (power/energy charts, battery levels), Skills (learned routines), Memory (semantic facts), Tools (35 registered tools reference).
 
 ## Quick Start
 
@@ -216,5 +224,6 @@ python tests/test_agent.py
 | GET | `/api/dashboard` | Dashboard widget config |
 | PUT | `/api/dashboard` | Save dashboard config |
 | POST | `/api/dashboard/edit` | AI-edit dashboard layout via natural language |
+| GET | `/api/energy` | Energy sensors + historical power data |
 
 Swagger docs: `http://localhost:8321/docs`

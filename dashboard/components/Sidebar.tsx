@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -10,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/devices", label: "Devices", icon: "cpu" },
   { href: "/cameras", label: "Cameras", icon: "camera" },
   { href: "/activity", label: "Activity", icon: "activity" },
+  { href: "/energy", label: "Energy", icon: "bolt" },
   { href: "/skills", label: "Skills", icon: "zap" },
   { href: "/memory", label: "Memory", icon: "brain" },
   { href: "/tools", label: "Tools", icon: "wrench" },
@@ -57,20 +59,26 @@ function NavIcon({ icon, className }: { icon: string; className?: string }) {
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
       </svg>
     ),
+    bolt: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
+        <circle cx="12" cy="12" r="9" strokeDasharray="2 3" />
+      </svg>
+    ),
   };
   return icons[icon] || null;
 }
 
-export default function Sidebar() {
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-full w-16 flex-col items-center border-r border-white/10 bg-true-black py-4 lg:w-56">
+    <>
       <div className="mb-8 flex items-center gap-2 px-4">
-        <div className="h-8 w-8 rounded-lg bg-cyber-yellow flex items-center justify-center">
+        <div className="h-8 w-8 rounded-lg bg-cyber-yellow flex items-center justify-center shrink-0">
           <span className="text-sm font-bold text-black font-mono">H</span>
         </div>
-        <span className="hidden text-sm font-bold text-white font-mono lg:block">
+        <span className="text-sm font-bold text-white font-mono">
           HomeBotAI
         </span>
       </div>
@@ -82,6 +90,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onNavigate}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200",
                 active
@@ -90,7 +99,7 @@ export default function Sidebar() {
               )}
             >
               <NavIcon icon={item.icon} className="h-5 w-5 shrink-0" />
-              <span className="hidden lg:block">{item.label}</span>
+              <span>{item.label}</span>
             </Link>
           );
         })}
@@ -98,17 +107,91 @@ export default function Sidebar() {
 
       <div className="px-2 w-full">
         <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-          <div className="hidden lg:block">
-            <p className="text-xs text-neutral-500 font-mono">Backend</p>
-            <p className="text-xs text-neutral-400 truncate">
-              {(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/^https?:\/\//, "")}
-            </p>
-          </div>
-          <div className="lg:hidden flex items-center justify-center">
-            <div className="h-2 w-2 rounded-full bg-green-500" />
-          </div>
+          <p className="text-xs text-neutral-500 font-mono">Backend</p>
+          <p className="text-xs text-neutral-400 truncate">
+            {(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/^https?:\/\//, "")}
+          </p>
         </div>
       </div>
-    </aside>
+    </>
+  );
+}
+
+export function MobileHeader() {
+  return null;
+}
+
+export default function Sidebar() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [mobileOpen]);
+
+  return (
+    <>
+      {/* Mobile top bar */}
+      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-white/10 bg-true-black/95 px-4 backdrop-blur-md md:hidden">
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 hover:bg-white/10 hover:text-white transition-colors"
+          aria-label="Open menu"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-5 w-5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+        </button>
+        <div className="flex items-center gap-2">
+          <div className="h-7 w-7 rounded-md bg-cyber-yellow flex items-center justify-center">
+            <span className="text-xs font-bold text-black font-mono">H</span>
+          </div>
+          <span className="text-sm font-bold text-white font-mono">HomeBotAI</span>
+        </div>
+      </div>
+
+      {/* Mobile drawer overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden"
+          onClick={closeMobile}
+        />
+      )}
+
+      {/* Mobile drawer */}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-white/10 bg-true-black py-4 transition-transform duration-300 ease-in-out md:hidden",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        <button
+          onClick={closeMobile}
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 hover:text-white transition-colors"
+          aria-label="Close menu"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        <SidebarContent onNavigate={closeMobile} />
+      </aside>
+
+      {/* Desktop sidebar -- always visible */}
+      <aside className="hidden md:flex h-full w-56 flex-col border-r border-white/10 bg-true-black py-4 shrink-0">
+        <SidebarContent />
+      </aside>
+    </>
   );
 }

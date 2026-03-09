@@ -30,7 +30,7 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="relative p-6 lg:p-8 space-y-6 max-w-7xl">
+    <div className="relative p-4 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 max-w-7xl">
       <BlurFade delay={0}>
         <div className="flex items-center justify-between">
           <div>

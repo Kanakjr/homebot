@@ -187,3 +187,25 @@ export interface DashboardEditResponse {
   config: DashboardConfig;
   message: string;
 }
+
+// --- Energy types ---
+
+export interface EnergySensor {
+  entity_id: string;
+  friendly_name: string;
+  device_class: "power" | "energy" | "battery";
+  state: number;
+  unit: string;
+}
+
+export interface EnergyHistoryPoint {
+  entity_id: string;
+  value: number;
+  ts: string;
+}
+
+export interface EnergyResponse {
+  current: EnergySensor[];
+  history: EnergyHistoryPoint[];
+  hours: number;
+}
