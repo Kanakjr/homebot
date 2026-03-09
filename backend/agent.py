@@ -91,8 +91,8 @@ class Agent:
         self._agent = create_react_agent(self.llm, tools)
         log.info("Agent built with %d tools", len(tools))
 
-    async def _build_system_prompt(self) -> str:
-        state_summary = self.state.summarize()
+    async def _build_system_prompt(self, context_hint: str | None = None) -> str:
+        state_summary = self.state.summarize(context_hint=context_hint)
         skills = await self.procedural.list_skills()
         semantic_facts = await self.semantic.all_facts()
 
@@ -133,6 +133,13 @@ class Agent:
             "- Use remember() when the user states a preference.\n"
             "- Be resourceful: if you can't find something, search for it before saying you don't know.\n"
             "- Confirm before disruptive actions. Be concise.\n"
+            "\n"
+            "Multi-step planning:\n"
+            "- For complex requests, plan the full tool chain before starting. For example: 'download latest X' = search Sonarr -> check Prowlarr -> add to Transmission.\n"
+            "- For media requests: search the library first (Jellyfin/Sonarr), then search for downloads (Prowlarr), then add to Transmission.\n"
+            "- If a step fails, explain what happened and suggest alternatives.\n"
+            "- For destructive actions (deleting torrents, clearing history, disabling automations), always confirm with the user first.\n"
+            "- When the user says 'yes'/'go ahead'/'do it' after you asked for confirmation, proceed with the action.\n"
         )
 
     def _build_messages(
@@ -166,7 +173,7 @@ class Agent:
         if not self._agent:
             self.build_agent()
 
-        system_prompt = system_prompt_override or await self._build_system_prompt()
+        system_prompt = system_prompt_override or await self._build_system_prompt(context_hint=user_message)
         history = await self.episodic.get_history(chat_id, limit=10)
         messages = self._build_messages(history, system_prompt, user_message, image_bytes)
         images: list[str] = []
@@ -217,7 +224,7 @@ class Agent:
         if not self._agent:
             self.build_agent()
 
-        system_prompt = system_prompt_override or await self._build_system_prompt()
+        system_prompt = system_prompt_override or await self._build_system_prompt(context_hint=user_message)
         history = await self.episodic.get_history(chat_id, limit=10)
         messages = self._build_messages(history, system_prompt, user_message, image_bytes)
 

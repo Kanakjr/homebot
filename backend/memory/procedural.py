@@ -161,6 +161,56 @@ class ProceduralMemory:
         )
         await self._db.commit()
 
+    async def ensure_default_skills(self):
+        """Create built-in digest/notification skills if they don't exist."""
+        defaults = [
+            {
+                "id": "daily_digest",
+                "name": "Daily Digest",
+                "description": "Generate a daily summary of home activity, energy usage, and notable events",
+                "trigger": {"type": "schedule", "cron": "0 22 * * *"},
+                "mode": "ai",
+                "ai_prompt": (
+                    "Generate a concise daily digest for Kanak. Include:\n"
+                    "1. Summary of today's activity (lights, switches toggled, how long devices were on)\n"
+                    "2. Energy/power highlights from sensor data\n"
+                    "3. Any notable events (printer jobs, unusual activity)\n"
+                    "4. Current state of the home\n"
+                    "Keep it short and useful -- 5-8 bullet points max."
+                ),
+                "notify": True,
+            },
+            {
+                "id": "weekly_energy_report",
+                "name": "Weekly Energy Report",
+                "description": "Weekly energy and usage trends report sent every Sunday",
+                "trigger": {"type": "schedule", "cron": "0 20 * * 0"},
+                "mode": "ai",
+                "ai_prompt": (
+                    "Generate a weekly energy and usage report for Kanak. Include:\n"
+                    "1. Power consumption patterns from the event log\n"
+                    "2. Which devices were most active this week\n"
+                    "3. Any trends (increasing/decreasing usage)\n"
+                    "4. Suggestions for optimization if any stand out\n"
+                    "Keep it concise -- aim for a short paragraph + key stats."
+                ),
+                "notify": True,
+            },
+        ]
+        for skill_def in defaults:
+            existing = await self.get_skill(skill_def["id"])
+            if not existing:
+                await self.create_skill(
+                    skill_id=skill_def["id"],
+                    name=skill_def["name"],
+                    description=skill_def["description"],
+                    trigger=skill_def["trigger"],
+                    mode=skill_def["mode"],
+                    ai_prompt=skill_def["ai_prompt"],
+                    notify=skill_def["notify"],
+                )
+                log.info("Created default skill: %s", skill_def["name"])
+
     @staticmethod
     def _row_to_skill(row) -> dict:
         return {

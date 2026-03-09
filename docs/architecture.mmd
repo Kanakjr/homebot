@@ -1,0 +1,189 @@
+%%{init: {
+  "theme": "default",
+  "themeVariables": {
+    "primaryColor": "#e8f0fe",
+    "primaryTextColor": "#1a1a1a",
+    "primaryBorderColor": "#4285f4",
+    "lineColor": "#5f6368",
+    "secondaryColor": "#fef7e0",
+    "tertiaryColor": "#e6f4ea",
+    "background": "#ffffff",
+    "mainBkg": "#e8f0fe",
+    "nodeBorder": "#4285f4",
+    "clusterBkg": "#f8f9fa",
+    "clusterBorder": "#dadce0",
+    "titleColor": "#1a73e8",
+    "edgeLabelBackground": "#ffffff",
+    "nodeTextColor": "#1a1a1a"
+  },
+  "flowchart": { "curve": "basis", "padding": 16 }
+}}%%
+
+flowchart TB
+  %% ───────── Entry Points ─────────
+  subgraph ENTRY["Entry Points"]
+    direction LR
+    TG["Telegram Bot\n(main.py)"]
+    API["FastAPI REST + SSE\n(api.py :8321)"]
+    CLI["Rich CLI\n(cli.py)"]
+  end
+
+  %% ───────── Dashboard ─────────
+  subgraph DASH["Dashboard  --  Next.js 15  :3001"]
+    direction LR
+    subgraph PAGES["Pages"]
+      direction TB
+      P_HOME["/ Dashboard\nAI Widget Grid"]
+      P_CHAT["/chat\nAI Chat + SSE"]
+      P_DEV["/devices\nEntity Browser"]
+      P_CAM["/cameras\nLive Snapshots"]
+      P_ACT["/activity\nEvent Log"]
+      P_SKILL["/skills\nSkill Manager"]
+      P_MEM["/memory\nSemantic Facts"]
+      P_TOOL["/tools\nTool Reference"]
+    end
+    subgraph DCOMP["Components"]
+      direction TB
+      DRENDER["DashboardRenderer\nWidget Grid"]
+      DASSIST["DashboardAssistant\nFloating AI Editor"]
+      CHATW["ChatWidget\nSSE Streaming"]
+      ECARD["EntityCard\nOptimistic Toggle"]
+    end
+    subgraph DLIB["Lib"]
+      direction TB
+      DAPI["api.ts\nfetchJSON + SSE"]
+      DHOOKS["useChat / useEntities\nReact Hooks"]
+    end
+  end
+
+  %% ───────── Core Agent ─────────
+  subgraph CORE["Core Agent"]
+    BOOT["bootstrap.py\nApp Init + Wiring"]
+    AGENT["LangGraph ReAct Agent\n(agent.py)\nGemini 2.5 Flash"]
+    STATE["State Cache\n(state.py)\nWebSocket Mirror\n280+ Entities"]
+    REACT["Reactor\n(reactor.py)\nScheduler + State Triggers\nProactive Notifications"]
+    DCONF["Dashboard Config\n(dashboard_config.py)\nWidget Layout (SQLite)"]
+    CFG["Config\n(config.py)\n.env + SSL"]
+  end
+
+  %% ───────── Memory ─────────
+  subgraph MEM["Three-Layer Memory  (SQLite)"]
+    direction LR
+    EPIS["Episodic\nChat History\n50 turns/chat"]
+    SEMA["Semantic\nFacts + Prefs\nKey-Value"]
+    PROC["Procedural\nSkills + Event Log\nCron / Triggers"]
+  end
+
+  %% ───────── Tools ─────────
+  subgraph TOOLS["35 Registered Tools"]
+    direction LR
+    subgraph T_HA["Home Assistant (4)"]
+      HA_T["ha_call_service\nha_get_camera_snapshot\nha_trigger_automation\nha_fire_event"]
+    end
+    subgraph T_MEDIA["Media Stack (16)"]
+      SONARR_T["Sonarr (4)"]
+      TRANS_T["Transmission (4)"]
+      JELLY_T["Jellyseerr (3)"]
+      PROWL_T["Prowlarr (3)"]
+      JF_T["Jellyfin (5)"]
+    end
+    subgraph T_AUTO["Automation (7)"]
+      SKILL_T["Skills (7)"]
+    end
+    subgraph T_MEM["Memory (2)"]
+      MEM_T["remember\nrecall"]
+    end
+    subgraph T_N8N["Workflows (5)"]
+      N8N_T["n8n (5)"]
+    end
+  end
+
+  %% ───────── External Services ─────────
+  subgraph EXT["External Services"]
+    direction LR
+    HA["Home Assistant\nWebSocket + REST"]
+    SONARR["Sonarr"]
+    TRANS["Transmission"]
+    JELLY["Jellyseerr"]
+    PROWL["Prowlarr"]
+    JF["Jellyfin"]
+    N8N["n8n"]
+    GEMINI["Google Gemini\n2.5 Flash"]
+    TGAPI["Telegram API"]
+    LSMITH["LangSmith\nTracing"]
+  end
+
+  %% ───────── Connections ─────────
+
+  %% Entry to Core
+  TG -->|python-telegram-bot| BOOT
+  API -->|FastAPI| BOOT
+  CLI -->|Rich REPL| BOOT
+
+  %% Dashboard to API
+  DAPI -->|HTTP + SSE| API
+  DASSIST -->|POST /dashboard/edit| API
+
+  %% Bootstrap wiring
+  BOOT --> AGENT
+  BOOT --> STATE
+  BOOT --> REACT
+  BOOT --> MEM
+  BOOT --> DCONF
+  BOOT --> CFG
+
+  %% Agent connections
+  AGENT -->|"system prompt\n(live state + memory)"| STATE
+  AGENT --> TOOLS
+  AGENT <-->|"history + facts"| MEM
+
+  %% Reactor connections
+  REACT -->|"state change events"| STATE
+  REACT -->|"AI-mode skills"| AGENT
+  REACT -->|"scheduled triggers"| PROC
+  REACT -->|"proactive alerts"| TGAPI
+
+  %% Tool -> External
+  HA_T --> HA
+  SONARR_T --> SONARR
+  TRANS_T --> TRANS
+  JELLY_T --> JELLY
+  PROWL_T --> PROWL
+  JF_T --> JF
+  N8N_T --> N8N
+  SKILL_T --> PROC
+  MEM_T --> SEMA
+
+  %% State to HA
+  STATE <-->|"WebSocket\nsubscription"| HA
+
+  %% Agent to Gemini
+  AGENT <-->|"langchain-google-genai"| GEMINI
+  AGENT -.->|"traces"| LSMITH
+
+  %% Telegram
+  TG <--> TGAPI
+
+  %% Dashboard internal
+  P_HOME --- DRENDER
+  P_HOME --- DASSIST
+  P_CHAT --- CHATW
+  P_DEV --- ECARD
+  PAGES --- DLIB
+
+  %% Styling
+  classDef gold fill:#fff3cd,stroke:#f59e0b,stroke-width:2px,color:#92400e
+  classDef blue fill:#dbeafe,stroke:#3b82f6,stroke-width:1px,color:#1e40af
+  classDef green fill:#d1fae5,stroke:#10b981,stroke-width:1px,color:#065f46
+  classDef red fill:#fee2e2,stroke:#ef4444,stroke-width:1px,color:#991b1b
+  classDef purple fill:#ede9fe,stroke:#8b5cf6,stroke-width:1px,color:#5b21b6
+  classDef ext fill:#f3f4f6,stroke:#9ca3af,stroke-width:1px,color:#374151
+
+  class TG,API,CLI gold
+  class AGENT,BOOT gold
+  class STATE,REACT,DCONF,CFG blue
+  class EPIS,SEMA,PROC green
+  class HA_T,SONARR_T,TRANS_T,JELLY_T,PROWL_T,JF_T,SKILL_T,MEM_T,N8N_T purple
+  class HA,SONARR,TRANS,JELLY,PROWL,JF,N8N,GEMINI,TGAPI,LSMITH ext
+  class P_HOME,P_CHAT,P_DEV,P_CAM,P_ACT,P_SKILL,P_MEM,P_TOOL blue
+  class DRENDER,DASSIST,CHATW,ECARD,DAPI,DHOOKS green

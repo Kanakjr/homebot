@@ -63,7 +63,6 @@ async def create_app(connect_ha: bool = True) -> App:
     await app.episodic.init()
     await app.semantic.init()
     await app.procedural.init()
-    await app.procedural.ensure_default_skills()
     await app.dashboard_config.init()
 
     app.tool_map.register_many(create_ha_tools())

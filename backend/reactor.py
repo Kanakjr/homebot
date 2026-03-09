@@ -4,6 +4,7 @@ Reactor: autonomous auto-actions engine.
 - Scheduled triggers via APScheduler (cron)
 - State-change triggers from HA WebSocket events
 - Event logging for daily summaries
+- Proactive smart notifications (printer done, battery low, welcome home)
 - Executes skills in static or AI-powered mode
 - Sends notifications to Telegram
 """
@@ -11,6 +12,7 @@ Reactor: autonomous auto-actions engine.
 import asyncio
 import json
 import logging
+import time
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -23,9 +25,11 @@ from tools.registry import ToolMap
 
 log = logging.getLogger("homebot.reactor")
 
+NOTIFICATION_COOLDOWN = 300  # 5 minutes per entity per rule
+
 NOTABLE_DOMAINS = {
-    "person", "light", "switch", "fan", "climate", "media_player",
-    "automation", "sensor", "binary_sensor", "camera", "lock",
+    "person", "device_tracker", "light", "switch", "fan", "climate",
+    "media_player", "automation", "sensor", "binary_sensor", "camera", "lock",
 }
 
 
@@ -45,6 +49,7 @@ class Reactor:
         self.allowed_users = allowed_users
         self.scheduler = AsyncIOScheduler(timezone=config.TZ)
         self._tool_map: ToolMap | None = None
+        self._notif_cooldowns: dict[str, float] = {}
 
     def set_tool_map(self, tool_map: ToolMap):
         self._tool_map = tool_map
@@ -109,6 +114,8 @@ class Reactor:
                     new_state=new_val,
                     event_type="state_change",
                 )
+
+        await self._check_proactive_notifications(entity_id, old_state, new_state)
 
         triggered_skills = await self.procedural.get_triggered_skills()
         for skill in triggered_skills:
@@ -219,6 +226,92 @@ class Reactor:
             system_prompt_override=await self.agent._build_system_prompt(),
         )
         return result.text
+
+    def _can_notify(self, key: str) -> bool:
+        """Cooldown check to avoid notification spam."""
+        now = time.monotonic()
+        last = self._notif_cooldowns.get(key, 0)
+        if now - last < NOTIFICATION_COOLDOWN:
+            return False
+        self._notif_cooldowns[key] = now
+        return True
+
+    async def _send_notification(self, message: str):
+        """Send a notification to all allowed Telegram users."""
+        if not self.allowed_users:
+            return
+        for uid in self.allowed_users:
+            try:
+                await self.bot.send_message(chat_id=uid, text=message)
+            except Exception:
+                log.exception("Failed to send proactive notification to %s", uid)
+
+    async def _check_proactive_notifications(
+        self, entity_id: str, old_state: dict | None, new_state: dict
+    ):
+        """Built-in smart notification rules that fire without explicit skills."""
+        old_val = old_state.get("state", "") if old_state else ""
+        new_val = new_state.get("state", "")
+        attrs = new_state.get("attributes", {})
+        friendly = attrs.get("friendly_name", entity_id)
+        domain = entity_id.split(".")[0]
+        dev_class = attrs.get("device_class", "")
+
+        # 3D printer finished: printing/preparing -> idle/complete
+        if "printo" in entity_id.lower() or "print" in friendly.lower():
+            if old_val in ("printing", "preparing") and new_val in ("idle", "complete", "standby", "off"):
+                if self._can_notify(f"printer_done:{entity_id}"):
+                    log.info("Proactive: printer finished (%s)", entity_id)
+                    await self._send_notification(
+                        f"🖨 Your 3D printer finished! {friendly} is now {new_val}."
+                    )
+
+        # Battery critically low (< 15%)
+        if dev_class == "battery" and old_val != new_val:
+            try:
+                new_pct = float(new_val)
+                old_pct = float(old_val) if old_val else 100
+                if new_pct < 15 and old_pct >= 15:
+                    if self._can_notify(f"battery_low:{entity_id}"):
+                        log.info("Proactive: battery low (%s at %s%%)", friendly, new_val)
+                        await self._send_notification(
+                            f"🔋 Low battery: {friendly} is at {new_val}%"
+                        )
+            except (ValueError, TypeError):
+                pass
+
+        # Person/device_tracker arriving home
+        if domain in ("person", "device_tracker"):
+            if old_val in ("not_home", "away") and new_val == "home":
+                if self._can_notify(f"welcome:{entity_id}"):
+                    log.info("Proactive: %s arrived home", friendly)
+                    # Build a quick status snippet
+                    lights_on = []
+                    for eid, st in self.state._states.items():
+                        if eid.startswith("light.") and st.get("state") == "on":
+                            name = st.get("attributes", {}).get("friendly_name", eid)
+                            if "printo" not in name.lower():
+                                lights_on.append(name)
+                    status = f"Lights on: {', '.join(lights_on)}" if lights_on else "All lights off"
+                    await self._send_notification(
+                        f"🏠 Welcome home, {friendly}! {status}."
+                    )
+
+            elif old_val == "home" and new_val in ("not_home", "away"):
+                if self._can_notify(f"left:{entity_id}"):
+                    log.info("Proactive: %s left home", friendly)
+                    # Check if anything was left on
+                    left_on = []
+                    for eid, st in self.state._states.items():
+                        if eid.startswith(("light.", "switch.")) and st.get("state") == "on":
+                            name = st.get("attributes", {}).get("friendly_name", eid)
+                            skip = ("led", "buzzer", "child lock", "printo", "enable camera")
+                            if not any(kw in name.lower() for kw in skip):
+                                left_on.append(name)
+                    if left_on:
+                        await self._send_notification(
+                            f"👋 {friendly} left home. Still on: {', '.join(left_on[:5])}"
+                        )
 
     async def _prune_event_log(self):
         await self.procedural.prune_event_log(keep_hours=72)

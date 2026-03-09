@@ -40,11 +40,25 @@ Home Assistant control, Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8
 
 ![Tools](docs/screenshots/tools-page.png)
 
-### Live Home Awareness
+### Smart Home Awareness
 
-WebSocket subscription mirrors 280+ HA entities in memory. A relevance-filtered state summary is injected into every LLM call, so the agent always knows what is on, off, playing, or consuming power -- without needing to query.
+WebSocket subscription mirrors 280+ HA entities in memory. Context-aware state summaries are injected into every LLM call -- mentioning "printer" automatically includes 3D printer telemetry, asking about "batteries" surfaces all device levels, and recent state changes are always visible. The agent detects anomalies (low battery, high power draw, open doors) and flags them proactively.
+
+![Smart Home Awareness](docs/chats/chat-smart-home-awareness.png)
 
 ![Devices](docs/screenshots/devices-page.png)
+
+### Presence Tracking
+
+Device trackers (phones, watches, tablets) and person entities are part of every conversation. The agent knows who's home, which devices are nearby, and can trigger location-based automations.
+
+### Proactive Notifications
+
+Automatic Telegram alerts without asking -- 3D printer finished, battery critically low (<15%), welcome home with lights status, left home with devices still on. Built-in rules with cooldown to prevent spam.
+
+### AI Digests
+
+Scheduled daily and weekly AI-generated summaries sent via Telegram. The daily digest (10 PM) covers activity, energy, and notable events. The weekly report (Sunday 8 PM) analyzes power trends and device usage patterns.
 
 ### Learnable Skills
 
@@ -54,7 +68,15 @@ Teach the agent reusable routines via chat ("When I say goodnight, turn off all 
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed system design, data flows, and component breakdowns.
+![Architecture Diagram](docs/architecture.png)
+
+> Regenerate after changes: `./docs/generate-diagrams.sh`
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) -- System design, data flows, and component breakdowns
+- [docs/AI_DASHBOARD.md](docs/AI_DASHBOARD.md) -- AI-customizable dashboard: widget types, editor usage, config schema
+- [docs/SMART_FEATURES.md](docs/SMART_FEATURES.md) -- Presence tracking, smart summaries, AI digests, proactive notifications
 
 ## Project Structure
 
@@ -62,7 +84,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed system design, data flows, a
 homebot/
   backend/          Python AI agent, API, CLI, Telegram bot
   dashboard/        Next.js dashboard UI
-  docs/             Screenshots and documentation assets
+  docs/
+    screenshots/    Dashboard and page screenshots
+    chats/          Chat conversation examples
   README.md         This file
   ARCHITECTURE.md   System architecture docs
 ```
