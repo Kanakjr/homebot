@@ -867,7 +867,7 @@ Config by type:
 - presence: {entities: [...]}  (person.* or device_tracker.* entities, shows home/away pills)
 - power_chart: {hours?, entity_filter?}  (mini sparkline of power usage over time)
 - bandwidth_chart: {hours?}  (mini chart of network download/upload speeds)
-- smart_plug: {plugs: [{name, switch_entity, power_entity, today_entity, month_entity, voltage_entity, current_entity, overheated_entity?, overloaded_entity?}, ...]}
+- smart_plug: {switch_entity, power_entity, today_entity, month_entity, voltage_entity, current_entity, overheated_entity?, overloaded_entity?}
 
 RULES:
 - Preserve widgets the user did not ask to change.

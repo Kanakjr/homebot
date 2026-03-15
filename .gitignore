@@ -52,3 +52,4 @@ Thumbs.db
 docker-compose.override.yml
 .cursor/
 .smbdelete*
+.deploy-trigger
