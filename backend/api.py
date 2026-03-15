@@ -440,6 +440,18 @@ async def list_entities():
         elif domain == "media_player":
             item["media_title"] = attrs.get("media_title")
             item["media_artist"] = attrs.get("media_artist")
+        elif domain == "weather":
+            item["temperature"] = attrs.get("temperature")
+            item["humidity"] = attrs.get("humidity")
+            item["pressure"] = attrs.get("pressure")
+            item["wind_speed"] = attrs.get("wind_speed")
+            item["wind_bearing"] = attrs.get("wind_bearing")
+            item["cloud_coverage"] = attrs.get("cloud_coverage")
+            item["uv_index"] = attrs.get("uv_index")
+            item["dew_point"] = attrs.get("dew_point")
+            item["temperature_unit"] = attrs.get("temperature_unit", "°C")
+            item["wind_speed_unit"] = attrs.get("wind_speed_unit", "km/h")
+            item["pressure_unit"] = attrs.get("pressure_unit", "hPa")
         elif domain == "camera":
             item["is_streaming"] = attrs.get("is_streaming", state_val == "streaming")
         domains.setdefault(domain, []).append(item)

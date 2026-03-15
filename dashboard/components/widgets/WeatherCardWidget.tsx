@@ -116,23 +116,30 @@ export default function WeatherCardWidget({ config, entities }: WeatherCardWidge
   const temp = raw?.temperature ?? raw?.current_temperature;
   const humidity = raw?.humidity;
   const windSpeed = raw?.wind_speed;
+  const pressure = raw?.pressure;
+  const uvIndex = raw?.uv_index;
 
   const IconComp = WEATHER_ICONS[state] ?? WEATHER_ICONS["sunny"] ?? SunIcon;
+
+  const stateLabel = state
+    .replace(/-/g, " ")
+    .replace("partlycloudy", "Partly Cloudy")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-1">
       <IconComp />
-      <p className="text-xl font-bold font-mono text-white capitalize mt-1">
-        {state.replace(/-/g, " ").replace("partlycloudy", "Partly Cloudy")}
-      </p>
+      <p className="text-lg font-bold font-mono text-white mt-1">{stateLabel}</p>
       {temp != null && (
         <p className="text-3xl font-bold font-mono text-cyber-yellow">
           {typeof temp === "number" ? temp.toFixed(1) : String(temp)}&deg;C
         </p>
       )}
-      <div className="flex gap-3 mt-1 text-xs text-neutral-500">
-        {humidity != null && <span>Humidity {String(humidity)}%</span>}
-        {windSpeed != null && <span>Wind {String(windSpeed)} km/h</span>}
+      <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 mt-1 text-xs text-neutral-500">
+        {humidity != null && <span>{String(humidity)}% humidity</span>}
+        {windSpeed != null && <span>{String(windSpeed)} km/h wind</span>}
+        {pressure != null && <span>{String(pressure)} hPa</span>}
+        {uvIndex != null && <span>UV {String(uvIndex)}</span>}
       </div>
     </div>
   );

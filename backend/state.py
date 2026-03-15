@@ -357,6 +357,7 @@ class StateCache:
         return "\n".join(lines) if lines else "No notable state."
 
     _ENERGY_CLASSES = frozenset({"power", "energy", "battery"})
+    _ENERGY_UNITS = frozenset({"W", "kW", "Wh", "kWh", "mWh", "%", "V", "A", "VA"})
 
     def get_energy_sensors(self) -> list[dict]:
         """Return all power, energy, and battery sensors with current values."""
@@ -367,6 +368,9 @@ class StateCache:
             attrs = entity.get("attributes", {})
             dev_class = attrs.get("device_class", "")
             if dev_class not in self._ENERGY_CLASSES:
+                continue
+            unit = attrs.get("unit_of_measurement", "")
+            if unit and unit not in self._ENERGY_UNITS:
                 continue
             state_val = entity.get("state", "")
             if state_val in ("unavailable", "unknown"):
@@ -380,7 +384,7 @@ class StateCache:
                 "friendly_name": attrs.get("friendly_name", eid),
                 "device_class": dev_class,
                 "state": round(val, 2),
-                "unit": attrs.get("unit_of_measurement", ""),
+                "unit": unit,
             })
         return results
 

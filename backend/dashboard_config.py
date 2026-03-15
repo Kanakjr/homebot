@@ -20,7 +20,7 @@ DEFAULT_CONFIG = {
             "id": "w_weather",
             "type": "weather_card",
             "title": "Weather",
-            "config": {"entity_id": "weather.forecast_home"},
+            "config": {"entity_id": "weather.home"},
             "size": "sm",
         },
         {
