@@ -74,3 +74,6 @@ JELLYFIN_API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
 DB_PATH = os.environ.get("DB_PATH", "/app/data/homebot.db")
 
 TZ = os.environ.get("TZ", "America/New_York")
+
+ENERGY_RATE = float(os.environ.get("ENERGY_RATE", "8"))
+ENERGY_CURRENCY = os.environ.get("ENERGY_CURRENCY", "INR")

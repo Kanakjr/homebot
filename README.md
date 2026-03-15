@@ -34,15 +34,23 @@ Ask the agent to show you any Home Assistant camera and it grabs a live snapshot
 
 ![Camera Snapshot](docs/screenshots/chat-camera-snapshot.png)
 
-### 35 Integrated Tools
+### Scenes -- State Snapshot and Restore
 
-Home Assistant control, Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n workflows, learnable skills, and three-layer memory (episodic, semantic, procedural) -- all accessible via natural language.
+Snapshot the current state of any set of devices (lights, fans, climate) and restore them with a single command. Scenes capture entity states and attributes (brightness, color temperature, fan mode) and can be activated from the dashboard, the chat agent, or the Home Map. Stored in SQLite for persistence.
+
+### Interactive Home Map
+
+A dedicated floorplan page with an inlined SVG floor plan showing live device states as colored overlays. Lights glow when on, sensors display readings, and devices are clickable for direct toggle control. Configured via a device-to-SVG mapping stored in the database.
+
+### 39 Integrated Tools
+
+Home Assistant control, Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n workflows, learnable skills, scene management, and three-layer memory (episodic, semantic, procedural) -- all accessible via natural language.
 
 ![Tools](docs/screenshots/tools-page.png)
 
 ### Smart Home Awareness
 
-WebSocket subscription mirrors 280+ HA entities in memory. Context-aware state summaries are injected into every LLM call -- mentioning "printer" automatically includes 3D printer telemetry, asking about "batteries" surfaces all device levels, and recent state changes are always visible. The agent detects anomalies (low battery, high power draw, open doors) and flags them proactively.
+WebSocket subscription mirrors 290+ HA entities in memory. Context-aware state summaries are injected into every LLM call -- mentioning "printer" automatically includes 3D printer telemetry, asking about "batteries" surfaces all device levels, and recent state changes are always visible. The agent detects anomalies (low battery, high power draw, open doors) and flags them proactively.
 
 ![Smart Home Awareness](docs/chats/chat-smart-home-awareness.png)
 
@@ -83,6 +91,7 @@ Teach the agent reusable routines via chat ("When I say goodnight, turn off all 
 - [ARCHITECTURE.md](ARCHITECTURE.md) -- System design, data flows, and component breakdowns
 - [docs/AI_DASHBOARD.md](docs/AI_DASHBOARD.md) -- AI-customizable dashboard: widget types, editor usage, config schema
 - [docs/SMART_FEATURES.md](docs/SMART_FEATURES.md) -- Presence tracking, smart summaries, AI digests, proactive notifications
+- [docs/ROADMAP.md](docs/ROADMAP.md) -- Future roadmap: 15 planned features with priority, effort, and implementation details
 
 ## Project Structure
 
@@ -99,7 +108,7 @@ homebot/
 
 ## Backend
 
-LangChain/LangGraph ReAct agent with three-layer memory and 35 tools spanning Home Assistant, media services (Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin), n8n workflows, and skill management.
+LangChain/LangGraph ReAct agent with three-layer memory and 39 tools spanning Home Assistant, media services (Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin), n8n workflows, scene management, and skill management.
 
 Entry points:
 - `main.py` -- Telegram bot (production)
@@ -112,7 +121,7 @@ Next.js 15 frontend with dark cyber-yellow theme, Geist Sans/Mono fonts, Tailwin
 
 Fully mobile-responsive with slide-out drawer navigation on phones/tablets.
 
-Pages: Dashboard (AI-customizable widget grid), Chat (AI conversation with SSE streaming and tool visibility), Devices (280 HA entities with domain filters), Cameras (live snapshots), Activity (event log), Energy (power/energy charts, battery levels), Skills (learned routines), Memory (semantic facts), Tools (35 registered tools reference).
+Pages: Dashboard (AI-customizable widget grid), Chat (AI conversation with SSE streaming and tool visibility), Devices (290 HA entities with domain filters), Cameras (live snapshots), Activity (event log), Energy (power/energy charts, battery levels), Network (Deco mesh nodes, connected clients, live bandwidth), Skills & Scenes (learned routines + state snapshots), Memory (semantic facts), Tools (39 registered tools reference), Analytics (historical trends), Health (system health metrics), Settings (notification rules, device aliases), Home Map (interactive SVG floorplan with live device overlays).
 
 ## Quick Start
 
@@ -182,6 +191,8 @@ docker compose up -d homebot homebot-dashboard
 | `JELLYFIN_URL` | No | Jellyfin API URL |
 | `JELLYFIN_API_KEY` | No | Jellyfin API key |
 | `CORS_ORIGINS` | No | Comma-separated allowed origins (default: `http://localhost:3001`) |
+| `ENERGY_RATE` | No | Electricity cost per kWh (default: `8`) |
+| `ENERGY_CURRENCY` | No | Currency code for energy cost (default: `INR`) |
 
 ### Dashboard (`dashboard/.env.local`)
 
@@ -213,17 +224,45 @@ python tests/test_agent.py
 |--------|------|-------------|
 | POST | `/api/chat` | Blocking chat -- returns full response + tool calls |
 | POST | `/api/chat/stream` | SSE stream of real-time events |
+| GET | `/api/chat/threads` | List conversation threads |
+| GET | `/api/chat/{id}/history` | Get message history for a thread |
+| DELETE | `/api/chat/{id}/history` | Clear a thread's history |
 | GET | `/api/health` | System status (tools, entities, model) |
+| GET | `/api/health/data` | Health metrics time series |
 | GET | `/api/tools` | List all registered tools |
 | GET | `/api/skills` | List learned skills |
+| POST | `/api/skills` | Create a new skill |
+| PUT | `/api/skills/{id}` | Update a skill |
+| DELETE | `/api/skills/{id}` | Delete a skill |
+| POST | `/api/skills/{id}/toggle` | Enable/disable a skill |
+| POST | `/api/skills/{id}/execute` | Execute a skill on demand |
 | GET | `/api/entities` | HA entities grouped by domain |
-| POST | `/api/entities/{id}/toggle` | Toggle a switch/light/fan entity |
+| POST | `/api/entities/{id}/toggle` | Toggle a switch/light/fan/scene entity |
+| POST | `/api/entities/{id}/light` | Set light brightness, color, temperature |
+| POST | `/api/entities/{id}/climate` | Set climate preset, fan mode, temperature |
 | GET | `/api/events` | Event log with time filtering |
 | GET | `/api/memory` | Semantic memory facts |
+| POST | `/api/memory` | Store a memory fact |
+| DELETE | `/api/memory/{key}` | Delete a memory fact |
 | POST | `/api/cameras/{id}/snapshot` | Request a camera snapshot |
+| GET | `/api/snapshots/{filename}` | Serve a saved snapshot image |
 | GET | `/api/dashboard` | Dashboard widget config |
 | PUT | `/api/dashboard` | Save dashboard config |
 | POST | `/api/dashboard/edit` | AI-edit dashboard layout via natural language |
+| GET | `/api/dashboard/summary` | AI-generated home summary |
+| GET | `/api/network` | Network status: mesh nodes, clients, bandwidth |
 | GET | `/api/energy` | Energy sensors + historical power data |
+| GET | `/api/analytics` | Historical analytics (energy, presence, network) |
+| GET | `/api/scenes` | List saved scenes |
+| POST | `/api/scenes` | Create a scene (snapshot entity states) |
+| POST | `/api/scenes/{id}/activate` | Restore a scene's saved states |
+| DELETE | `/api/scenes/{id}` | Delete a scene |
+| GET | `/api/floorplan/config` | Floorplan device-to-SVG mapping |
+| PUT | `/api/floorplan/config` | Update floorplan config |
+| GET | `/api/devices/aliases` | Device name aliases |
+| PUT | `/api/devices/aliases/{mac}` | Set a device alias |
+| DELETE | `/api/devices/aliases/{mac}` | Delete a device alias |
+| GET | `/api/notifications/rules` | Notification rule configs |
+| PUT | `/api/notifications/rules/{id}` | Update a notification rule |
 
-Swagger docs: `http://localhost:8321/docs`
+43 endpoints total. Swagger docs: `http://localhost:8321/docs`

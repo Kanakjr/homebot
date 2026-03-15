@@ -13,8 +13,11 @@ from telegram.ext import (
     filters,
 )
 
+from telegram.constants import ParseMode
+
 import config
 from bootstrap import App, create_app, shutdown_app
+from notifier import _md_to_telegram_html
 from reactor import Reactor
 
 logging.basicConfig(
@@ -33,10 +36,30 @@ def _is_allowed(user_id: int) -> bool:
     return user_id in config.TELEGRAM_ALLOWED_USERS
 
 
+async def _reply_formatted(message, text: str):
+    """Send a reply with markdown-to-HTML conversion, chunking, and fallback."""
+    html_text = _md_to_telegram_html(text)
+    chunks = (
+        [html_text[i : i + 4096] for i in range(0, len(html_text), 4096)]
+        if len(html_text) > 4096
+        else [html_text]
+    )
+    for chunk in chunks:
+        try:
+            await message.reply_text(chunk, parse_mode=ParseMode.HTML)
+        except Exception:
+            await message.reply_text(chunk if chunk == text else text, parse_mode=None)
+
+
 async def cmd_start(update: Update, context):
     if not _is_allowed(update.effective_user.id):
         return
-    await update.message.reply_text("HomeBotAI is online. Ask me anything about your home.")
+    await update.message.reply_text(
+        "HomeBotAI is online. Ask me anything about your home.\n\n"
+        "Commands:\n"
+        "/skills -- list learned skills\n"
+        "/run <skill> -- run a skill on demand\n"
+    )
 
 
 async def cmd_skills(update: Update, context):
@@ -51,6 +74,22 @@ async def cmd_skills(update: Update, context):
         trigger_label = s.get("trigger", {}).get("type", "manual")
         lines.append(f"- {s['name']} [{trigger_label}]: {s['description']}")
     await update.message.reply_text("Learned skills:\n" + "\n".join(lines))
+
+
+async def cmd_run(update: Update, context):
+    """Run a skill on demand: /run <skill_name_or_id>"""
+    if not _is_allowed(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /run <skill_name_or_id>\nSee /skills for available skills.")
+        return
+
+    skill_query = " ".join(context.args)
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+    result_text = await reactor.fire_skill_by_name(skill_query)
+    await _reply_formatted(update.message, result_text)
 
 
 async def handle_message(update: Update, context):
@@ -72,12 +111,7 @@ async def handle_message(update: Update, context):
         except Exception:
             log.warning("Failed to send snapshot photo: %s", img_path)
 
-    response = result.text
-    if len(response) > 4096:
-        for i in range(0, len(response), 4096):
-            await update.message.reply_text(response[i : i + 4096])
-    else:
-        await update.message.reply_text(response)
+    await _reply_formatted(update.message, result.text)
 
 
 async def handle_photo(update: Update, context):
@@ -102,7 +136,7 @@ async def handle_photo(update: Update, context):
         except Exception:
             log.warning("Failed to send snapshot photo: %s", img_path)
 
-    await update.message.reply_text(result.text)
+    await _reply_formatted(update.message, result.text)
 
 
 async def post_init(application: Application):
@@ -111,12 +145,13 @@ async def post_init(application: Application):
 
     app_ctx = await create_app(connect_ha=True)
 
+    app_ctx.notifier.bot = application.bot
+
     reactor = Reactor(
         state_cache=app_ctx.state_cache,
         procedural=app_ctx.procedural,
         agent=app_ctx.agent,
-        bot=application.bot,
-        allowed_users=config.TELEGRAM_ALLOWED_USERS,
+        notifier=app_ctx.notifier,
     )
     reactor.set_tool_map(app_ctx.tool_map)
     await reactor.start()
@@ -143,6 +178,7 @@ def main():
 
     tg_app.add_handler(CommandHandler("start", cmd_start))
     tg_app.add_handler(CommandHandler("skills", cmd_skills))
+    tg_app.add_handler(CommandHandler("run", cmd_run))
     tg_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 

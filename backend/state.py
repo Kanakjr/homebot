@@ -151,7 +151,7 @@ class StateCache:
     # Sensor device classes worth including in the summary
     _USEFUL_SENSOR_CLASSES = frozenset({
         "temperature", "humidity", "pm25", "pm10", "aqi",
-        "power", "energy", "battery", "illuminance",
+        "power", "energy", "battery", "illuminance", "data_rate",
         "carbon_dioxide", "carbon_monoxide", "volatile_organic_compounds",
     })
 
@@ -198,7 +198,9 @@ class StateCache:
             for keyword in ("printer", "printo", "3d", "print",
                             "xbox", "tv", "media", "spotify", "jellyfin",
                             "camera", "purifier", "energy", "power",
-                            "battery", "watch", "phone", "pixel", "ipad"):
+                            "battery", "watch", "phone", "pixel", "ipad",
+                            "network", "bandwidth", "wifi", "deco", "router",
+                            "internet", "connected", "online", "offline"):
                 if keyword in hint_lower:
                     context_keywords.add(keyword)
 
@@ -227,6 +229,27 @@ class StateCache:
                 _add("People", f"{friendly}: {state_val}")
 
             elif domain == "device_tracker":
+                device_type = attrs.get("device_type", "")
+                if device_type in ("deco", "client") and attrs.get("source_type") == "router":
+                    network_ctx = any(kw in context_keywords for kw in
+                                      ("network", "bandwidth", "wifi", "deco",
+                                       "router", "internet", "connected", "online", "offline"))
+                    if network_ctx:
+                        if device_type == "deco":
+                            online = "online" if attrs.get("internet_online") else "offline"
+                            _add("Network", f"{friendly} (mesh node): {online}")
+                        else:
+                            conn = attrs.get("connection_type", "unknown")
+                            node = attrs.get("deco_device", "")
+                            down = attrs.get("down_kilobytes_per_s", 0)
+                            up = attrs.get("up_kilobytes_per_s", 0)
+                            parts = [f"{conn}"]
+                            if node:
+                                parts.append(f"via {node}")
+                            if down or up:
+                                parts.append(f"down:{down}kB/s up:{up}kB/s")
+                            _add("Network", f"{friendly}: {state_val} ({', '.join(parts)})")
+                    continue
                 loc = state_val
                 source = attrs.get("source_type", "")
                 extra = f" ({source})" if source else ""
@@ -361,6 +384,95 @@ class StateCache:
             })
         return results
 
+    def get_network_data(self, aliases: dict[str, dict] | None = None) -> dict:
+        """Return TP-Link Deco mesh nodes, connected clients, and bandwidth sensors."""
+        mesh_nodes = []
+        clients = []
+        bandwidth_sensors = []
+
+        for eid, entity in sorted(self._states.items()):
+            attrs = entity.get("attributes", {})
+            state_val = entity.get("state", "")
+            friendly = attrs.get("friendly_name", eid)
+
+            if eid.startswith("device_tracker.") and attrs.get("source_type") == "router":
+                device_type = attrs.get("device_type", "")
+                if device_type == "deco":
+                    mesh_nodes.append({
+                        "entity_id": eid,
+                        "friendly_name": friendly,
+                        "state": state_val,
+                        "ip": attrs.get("ip", ""),
+                        "mac": attrs.get("mac", ""),
+                        "model": attrs.get("device_model", ""),
+                        "hw_version": attrs.get("hw_version", ""),
+                        "sw_version": attrs.get("sw_version", ""),
+                        "master": attrs.get("master", False),
+                        "internet_online": attrs.get("internet_online", False),
+                    })
+                    if aliases:
+                        mac_key = attrs.get("mac", "")
+                        if mac_key in aliases:
+                            mesh_nodes[-1]["friendly_name"] = aliases[mac_key]["alias"]
+                elif device_type == "client":
+                    down = attrs.get("down_kilobytes_per_s", 0)
+                    up = attrs.get("up_kilobytes_per_s", 0)
+                    try:
+                        down = round(float(down), 2)
+                        up = round(float(up), 2)
+                    except (ValueError, TypeError):
+                        down, up = 0, 0
+                    clients.append({
+                        "entity_id": eid,
+                        "friendly_name": friendly,
+                        "state": state_val,
+                        "ip": attrs.get("ip", ""),
+                        "mac": attrs.get("mac", ""),
+                        "connection_type": attrs.get("connection_type", "unknown"),
+                        "deco_device": attrs.get("deco_device", ""),
+                        "deco_mac": attrs.get("deco_mac", ""),
+                        "down_kbps": down,
+                        "up_kbps": up,
+                    })
+                    if aliases:
+                        mac_key = attrs.get("mac", "")
+                        if mac_key in aliases:
+                            clients[-1]["friendly_name"] = aliases[mac_key]["alias"]
+
+            elif eid.startswith("sensor.") and attrs.get("device_class") == "data_rate":
+                try:
+                    val = round(float(state_val), 2)
+                except (ValueError, TypeError):
+                    continue
+                bandwidth_sensors.append({
+                    "entity_id": eid,
+                    "friendly_name": friendly,
+                    "state": val,
+                    "unit": attrs.get("unit_of_measurement", "kB/s"),
+                })
+
+        # Filter bandwidth sensors to Deco-related only (match node names + "total")
+        node_names = {n["friendly_name"].lower().replace(" ", "_").split("_")[0] for n in mesh_nodes}
+        node_names.add("total")
+        bandwidth_sensors = [
+            s for s in bandwidth_sensors
+            if any(s["entity_id"].split(".")[-1].startswith(name) for name in node_names)
+        ]
+
+        online_count = sum(1 for c in clients if c["state"] == "home")
+        total_down = sum(s["state"] for s in bandwidth_sensors if "down" in s["entity_id"])
+        total_up = sum(s["state"] for s in bandwidth_sensors if "up" in s["entity_id"])
+
+        return {
+            "mesh_nodes": mesh_nodes,
+            "clients": clients,
+            "bandwidth_sensors": bandwidth_sensors,
+            "total_clients": len(clients),
+            "online_clients": online_count,
+            "total_down_kbps": round(total_down, 2),
+            "total_up_kbps": round(total_up, 2),
+        }
+
     def _detect_anomalies(self) -> list[str]:
         """Flag unusual states worth highlighting to the agent."""
         alerts = []
@@ -389,5 +501,13 @@ class StateCache:
             # Door/window open
             if dev_class in ("door", "window") and state_val == "on":
                 alerts.append(f"OPEN: {friendly}")
+
+            # High bandwidth (> 50 MB/s total)
+            if dev_class == "data_rate" and "total_down" in eid.lower():
+                try:
+                    if float(state_val) > 50000:
+                        alerts.append(f"HIGH BANDWIDTH: {friendly} at {state_val} kB/s")
+                except (ValueError, TypeError):
+                    pass
 
         return alerts

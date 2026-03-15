@@ -133,11 +133,12 @@ async def lifespan(app: FastAPI):
     """Initialize homebot on startup, clean up on shutdown."""
     global _app_ctx
 
+    t0 = time.monotonic()
     from bootstrap import create_app, shutdown_app
 
     connect_ha = not getattr(app.state, "no_ha", False)
-    _app_ctx = await create_app(connect_ha=connect_ha)
-    log.info("API server ready")
+    _app_ctx = await create_app(connect_ha=connect_ha, build_agent=False)
+    log.info("API server ready in %.1fs (agent deferred to first chat)", time.monotonic() - t0)
     yield
     await shutdown_app(_app_ctx)
     _app_ctx = None
@@ -163,6 +164,7 @@ app.add_middleware(
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     """Send a message and get the full response (blocking)."""
+    await _app_ctx.ensure_agent()
     t0 = time.monotonic()
     tool_calls = []
     response_text = ""
@@ -199,6 +201,7 @@ async def chat(req: ChatRequest):
 @app.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest):
     """Send a message and receive Server-Sent Events as the agent works."""
+    await _app_ctx.ensure_agent()
 
     async def event_generator():
         async for event in _app_ctx.agent.run_stream(
@@ -242,7 +245,7 @@ async def health():
     """Service health check and stats."""
     return HealthResponse(
         status="ok",
-        tools_registered=len(_app_ctx.tool_map),
+        tools_registered=len(_app_ctx.tool_map) if _app_ctx.tool_map else 0,
         entities_loaded=len(_app_ctx.state_cache.all_entity_ids()),
         model=config.GEMINI_MODEL,
     )
@@ -251,6 +254,7 @@ async def health():
 @app.get("/api/tools", response_model=list[ToolInfo])
 async def list_tools():
     """List all registered tools."""
+    await _app_ctx.ensure_agent()
     return [
         ToolInfo(
             name=t.name,
@@ -320,6 +324,73 @@ async def toggle_skill(skill_id: str, active: bool = True):
     return SkillDetail(**skill)
 
 
+@app.post("/api/skills/{skill_id}/execute")
+async def execute_skill(skill_id: str):
+    """Execute a skill on demand and return the result."""
+    await _app_ctx.ensure_agent()
+    skill = await _app_ctx.procedural.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    if not skill.get("active"):
+        raise HTTPException(status_code=400, detail="Skill is disabled")
+
+    t0 = time.monotonic()
+
+    try:
+        if skill["mode"] == "static":
+            results = []
+            for action in skill.get("actions", []):
+                tool_name = action.get("tool")
+                params = action.get("params", {})
+                if _app_ctx.tool_map.has(tool_name):
+                    result = await _app_ctx.tool_map.execute(tool_name, params)
+                    results.append(f"{tool_name}: {str(result)[:200]}")
+                else:
+                    results.append(f"{tool_name}: unknown tool")
+            result_text = f"Skill '{skill['name']}' executed:\n" + "\n".join(results)
+        elif skill["mode"] == "ai":
+            import random
+            prompt = (
+                f"[SKILL EXECUTION: {skill['name']}]\n"
+                "You are executing a skill RIGHT NOW. Do NOT mention that the skill "
+                "already exists or suggest waiting for it. Perform the task below "
+                "immediately using your tools and live state data. Produce the "
+                "requested output directly.\n\n"
+            )
+            prompt += skill.get("ai_prompt", "")
+            event_log = await _app_ctx.procedural.get_event_log(hours=24)
+            if event_log:
+                log_text = "\n".join(
+                    f"- [{e['ts']}] {e['entity_id']}: {e['old_state']} -> {e['new_state']} ({e['event_type']})"
+                    for e in event_log[-50:]
+                )
+                prompt += f"\n\nRecent event log:\n{log_text}"
+
+            ephemeral_chat_id = -random.randint(1_000_000, 9_999_999)
+            agent_result = await _app_ctx.agent.run(
+                chat_id=ephemeral_chat_id,
+                user_message=prompt,
+                system_prompt_override=await _app_ctx.agent._build_system_prompt(),
+            )
+            result_text = agent_result.text
+        else:
+            result_text = f"Unknown mode for skill '{skill['name']}'"
+
+        if skill.get("notify"):
+            await _app_ctx.notifier.send(result_text)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Skill execution failed: {e}")
+
+    elapsed = int((time.monotonic() - t0) * 1000)
+    return {
+        "status": "ok",
+        "skill_name": skill["name"],
+        "result": result_text,
+        "duration_ms": elapsed,
+    }
+
+
 SNAPSHOT_DIR = Path(tempfile.gettempdir()) / "homebot_snapshots"
 
 
@@ -353,8 +424,19 @@ async def list_entities():
             item["temperature"] = attrs.get("temperature")
             item["current_temperature"] = attrs.get("current_temperature")
             item["hvac_modes"] = attrs.get("hvac_modes", [])
+            item["preset_mode"] = attrs.get("preset_mode")
+            item["preset_modes"] = attrs.get("preset_modes", [])
+            item["fan_mode"] = attrs.get("fan_mode")
+            item["fan_modes"] = attrs.get("fan_modes", [])
         elif domain == "light":
             item["brightness"] = attrs.get("brightness")
+            item["color_mode"] = attrs.get("color_mode")
+            item["supported_color_modes"] = attrs.get("supported_color_modes", [])
+            item["color_temp_kelvin"] = attrs.get("color_temp_kelvin")
+            item["min_color_temp_kelvin"] = attrs.get("min_color_temp_kelvin")
+            item["max_color_temp_kelvin"] = attrs.get("max_color_temp_kelvin")
+            item["rgb_color"] = attrs.get("rgb_color")
+            item["hs_color"] = attrs.get("hs_color")
         elif domain == "media_player":
             item["media_title"] = attrs.get("media_title")
             item["media_artist"] = attrs.get("media_artist")
@@ -371,7 +453,7 @@ async def list_entities():
 async def toggle_entity(entity_id: str, req: ToggleRequest = ToggleRequest()):
     """Toggle, turn_on, or turn_off a switch/light/fan entity via HA."""
     domain = entity_id.split(".")[0]
-    allowed = {"light", "switch", "fan", "automation"}
+    allowed = {"light", "switch", "fan", "automation", "scene"}
     if domain not in allowed:
         raise HTTPException(status_code=400, detail=f"Domain '{domain}' not toggleable via this endpoint")
 
@@ -388,6 +470,96 @@ async def toggle_entity(entity_id: str, req: ToggleRequest = ToggleRequest()):
                 return {"status": "ok", "entity_id": entity_id, "action": action}
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+class LightControlRequest(BaseModel):
+    brightness: int | None = Field(default=None, ge=0, le=255)
+    color_temp_kelvin: int | None = None
+    rgb_color: list[int] | None = Field(default=None, min_length=3, max_length=3)
+
+
+@app.post("/api/entities/{entity_id}/light")
+async def control_light(entity_id: str, req: LightControlRequest):
+    """Set light brightness, color temperature, or RGB color via HA."""
+    if not entity_id.startswith("light."):
+        raise HTTPException(status_code=400, detail="Not a light entity")
+
+    if req.brightness is not None and req.brightness == 0:
+        url = f"{config.HA_URL}/api/services/light/turn_off"
+        payload = {"entity_id": entity_id}
+    else:
+        url = f"{config.HA_URL}/api/services/light/turn_on"
+        payload: dict = {"entity_id": entity_id}
+        if req.brightness is not None:
+            payload["brightness"] = req.brightness
+        if req.color_temp_kelvin is not None:
+            payload["color_temp_kelvin"] = req.color_temp_kelvin
+        if req.rgb_color is not None:
+            payload["rgb_color"] = req.rgb_color
+
+    headers = {"Authorization": f"Bearer {config.HA_TOKEN}", "Content-Type": "application/json"}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    raise HTTPException(status_code=resp.status, detail=text[:300])
+                return {"status": "ok", "entity_id": entity_id}
+    except aiohttp.ClientError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+class ClimateControlRequest(BaseModel):
+    preset_mode: str | None = None
+    fan_mode: str | None = None
+    temperature: float | None = None
+
+
+@app.post("/api/entities/{entity_id}/climate")
+async def control_climate(entity_id: str, req: ClimateControlRequest):
+    """Set climate preset mode, fan mode, or temperature via HA."""
+    if not entity_id.startswith("climate."):
+        raise HTTPException(status_code=400, detail="Not a climate entity")
+
+    headers = {"Authorization": f"Bearer {config.HA_TOKEN}", "Content-Type": "application/json"}
+    results = []
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            if req.preset_mode is not None:
+                url = f"{config.HA_URL}/api/services/climate/set_preset_mode"
+                async with session.post(url, headers=headers, json={
+                    "entity_id": entity_id, "preset_mode": req.preset_mode,
+                }) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        raise HTTPException(status_code=resp.status, detail=text[:300])
+                    results.append("preset_mode")
+
+            if req.fan_mode is not None:
+                url = f"{config.HA_URL}/api/services/climate/set_fan_mode"
+                async with session.post(url, headers=headers, json={
+                    "entity_id": entity_id, "fan_mode": req.fan_mode,
+                }) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        raise HTTPException(status_code=resp.status, detail=text[:300])
+                    results.append("fan_mode")
+
+            if req.temperature is not None:
+                url = f"{config.HA_URL}/api/services/climate/set_temperature"
+                async with session.post(url, headers=headers, json={
+                    "entity_id": entity_id, "temperature": req.temperature,
+                }) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        raise HTTPException(status_code=resp.status, detail=text[:300])
+                    results.append("temperature")
+
+    except aiohttp.ClientError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return {"status": "ok", "entity_id": entity_id, "updated": results}
 
 
 @app.post("/api/cameras/{entity_id}/snapshot")
@@ -421,6 +593,83 @@ async def get_events(hours: int = 24, limit: int = 200):
     return {"events": events, "hours": hours}
 
 
+HEALTH_ENTITIES = {
+    "heart_rate": "sensor.galaxy_watch8_classic_krbx_heart_rate",
+    "steps": "sensor.galaxy_watch8_classic_krbx_daily_steps",
+    "steps_total": "sensor.galaxy_watch8_classic_krbx_steps_sensor",
+    "calories": "sensor.galaxy_watch8_classic_krbx_daily_calories",
+    "distance": "sensor.galaxy_watch8_classic_krbx_daily_distance",
+    "floors": "sensor.galaxy_watch8_classic_krbx_daily_floors",
+    "activity": "sensor.galaxy_watch8_classic_krbx_activity_state",
+    "pressure": "sensor.galaxy_watch8_classic_krbx_pressure_sensor",
+    "on_body": "binary_sensor.galaxy_watch8_classic_krbx_on_body_sensor",
+    "watch_battery": "sensor.galaxy_watch8_classic_krbx_battery_level",
+    "watch_battery_state": "sensor.galaxy_watch8_classic_krbx_battery_state",
+    "watch_charger": "sensor.galaxy_watch8_classic_krbx_charger_type",
+    "pixel_activity": "sensor.pixel_9_pro_detected_activity",
+    "pixel_battery": "sensor.pixel_9_pro_battery_level",
+    "pixel_battery_state": "sensor.pixel_9_pro_battery_state",
+    "pixel_steps": "sensor.pixel_9_pro_daily_steps",
+    "pixel_distance": "sensor.pixel_9_pro_daily_distance",
+    "pixel_sleep": "sensor.pixel_9_pro_sleep_duration",
+    "pixel_location": "sensor.pixel_9_pro_geocoded_location",
+}
+
+HISTORY_ENTITIES = [
+    "sensor.galaxy_watch8_classic_krbx_heart_rate",
+    "sensor.galaxy_watch8_classic_krbx_daily_steps",
+    "sensor.galaxy_watch8_classic_krbx_daily_calories",
+    "sensor.galaxy_watch8_classic_krbx_pressure_sensor",
+]
+
+
+@app.get("/api/health/data")
+async def get_health_data(hours: int = 24):
+    """Health dashboard data: current readings from Watch 8 + Pixel, plus HA history."""
+    current: dict[str, dict] = {}
+    for key, eid in HEALTH_ENTITIES.items():
+        st = _app_ctx.state_cache.get(eid)
+        if st:
+            current[key] = {
+                "entity_id": eid,
+                "state": st.get("state"),
+                "unit": st.get("attributes", {}).get("unit_of_measurement", ""),
+                "friendly_name": st.get("attributes", {}).get("friendly_name", eid),
+                "last_changed": st.get("last_changed", ""),
+            }
+
+    history: dict[str, list] = {}
+    try:
+        from datetime import datetime, timedelta, timezone as tz
+
+        start = (datetime.now(tz.utc) - timedelta(hours=hours)).isoformat()
+        filter_ids = ",".join(HISTORY_ENTITIES)
+        url = f"{config.HA_URL}/api/history/period/{start}?filter_entity_id={filter_ids}&minimal_response&no_attributes"
+        headers = {"Authorization": f"Bearer {config.HA_TOKEN}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, ssl=False, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    raw = await resp.json()
+                    for entity_history in raw:
+                        if not entity_history:
+                            continue
+                        eid = entity_history[0].get("entity_id", "")
+                        points = []
+                        for pt in entity_history:
+                            try:
+                                val = float(pt["state"])
+                                points.append({"ts": pt.get("last_changed", ""), "value": round(val, 2)})
+                            except (ValueError, TypeError, KeyError):
+                                continue
+                        if points:
+                            key = next((k for k, v in HEALTH_ENTITIES.items() if v == eid), eid)
+                            history[key] = points
+    except Exception as exc:
+        log.warning("Failed to fetch HA history for health: %s", exc)
+
+    return {"current": current, "history": history, "hours": hours}
+
+
 @app.get("/api/memory")
 async def list_memory():
     """List all semantic memory facts."""
@@ -442,7 +691,134 @@ async def delete_memory(key: str):
     return {"status": "ok", "key": key}
 
 
+# --- Device aliases endpoints ---
+
+class DeviceAliasRequest(BaseModel):
+    alias: str = Field(..., description="Human-friendly device name")
+    device_type: str = Field(default="", description="Device category")
+    icon: str = Field(default="", description="Icon identifier")
+    is_presence: bool = Field(default=False, description="Track this device for presence automations")
+
+
+@app.get("/api/devices/aliases")
+async def list_device_aliases():
+    aliases = await _app_ctx.procedural.get_device_aliases()
+    return {"aliases": [{"mac": mac, **info} for mac, info in aliases.items()]}
+
+
+@app.put("/api/devices/aliases/{mac}")
+async def set_device_alias(mac: str, req: DeviceAliasRequest):
+    result = await _app_ctx.procedural.set_device_alias(
+        mac, req.alias, req.device_type, req.icon, req.is_presence,
+    )
+    return result
+
+
+@app.delete("/api/devices/aliases/{mac}")
+async def delete_device_alias(mac: str):
+    deleted = await _app_ctx.procedural.delete_device_alias(mac)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Alias not found")
+    return {"status": "ok", "mac": mac}
+
+
+# --- Notification rules endpoints ---
+
+class NotificationRuleUpdate(BaseModel):
+    enabled: bool | None = None
+    config: dict | None = None
+    cooldown_seconds: int | None = None
+
+
+@app.get("/api/notifications/rules")
+async def list_notification_rules():
+    rules = await _app_ctx.procedural.get_notification_rules()
+    return {"rules": rules}
+
+
+@app.put("/api/notifications/rules/{rule_id}")
+async def update_notification_rule(rule_id: str, req: NotificationRuleUpdate):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    result = await _app_ctx.procedural.update_notification_rule(rule_id, updates)
+    if not result:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return result
+
+
+# --- Analytics endpoints ---
+
+@app.get("/api/analytics")
+async def get_analytics(metric: str = "activity", hours: int = 168):
+    """Aggregated analytics: energy, presence, network, activity."""
+    valid = {"energy", "presence", "network", "activity"}
+    if metric not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid metric. Must be one of: {valid}")
+    return await _app_ctx.procedural.get_analytics(metric=metric, hours=hours)
+
+
 # --- Dashboard config endpoints ---
+
+SUMMARY_SYSTEM_PROMPT = (
+    "You are a smart home assistant greeting the homeowner Kanak. "
+    "Write a warm, conversational 3-5 sentence welcome summary. Include:\n"
+    "- Current weather conditions (temperature, description)\n"
+    "- Room environment (temperature, humidity, air quality / PM2.5)\n"
+    "- Notable device states (which lights/switches are on, any doors open)\n"
+    "- Network status if any devices are offline\n"
+    "- Energy usage if notable (high power draw)\n"
+    "- Who is home (presence detection)\n"
+    "Be natural and conversational like a helpful butler. "
+    "Do not use markdown, bullet points, or formatting. "
+    "Do not use emojis. Keep it between 80-150 words. "
+    "You MUST complete your response. Do not stop mid-sentence."
+)
+
+
+@app.get("/api/dashboard/summary")
+async def get_dashboard_summary(regenerate: bool = False):
+    """AI-generated dashboard welcome summary with smart caching."""
+    if not regenerate:
+        cached = await _app_ctx.dashboard_config.get_summary()
+        if cached:
+            return cached
+
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    state_text = _app_ctx.state_cache.summarize(
+        context_hint="weather temperature humidity power energy battery network bandwidth presence",
+    )
+
+    llm = ChatGoogleGenerativeAI(
+        model=config.GEMINI_MODEL,
+        google_api_key=config.GEMINI_API_KEY,
+        temperature=0.7,
+        max_output_tokens=2048,
+    )
+
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=SUMMARY_SYSTEM_PROMPT),
+            HumanMessage(content=f"Current home state:\n{state_text}"),
+        ])
+        raw = response.content
+        if isinstance(raw, str):
+            summary_text = raw.strip()
+        else:
+            summary_text = "".join(
+                block.get("text", "") for block in raw
+                if isinstance(block, dict) and block.get("type") == "text"
+            ).strip()
+    except Exception as e:
+        log.warning("Summary generation failed: %s", e)
+        summary_text = "Welcome home. Everything is running smoothly."
+
+    await _app_ctx.dashboard_config.save_summary(summary_text)
+    return await _app_ctx.dashboard_config.get_summary() or {
+        "summary": summary_text,
+        "generated_at": "",
+    }
+
 
 @app.get("/api/dashboard")
 async def get_dashboard():
@@ -470,7 +846,7 @@ If the user asks for a CHANGE, return the updated config on line 1 and describe 
 
 WIDGET SCHEMA:
 Each widget: {id, type, title, config, size}
-Types: stat, toggle_group, sensor_grid, camera, quick_actions, weather, scene_buttons
+Types: stat, toggle_group, sensor_grid, camera, quick_actions, weather, scene_buttons, weather_card, gauge, light_control, climate_control, printer, air_purifier, presence, power_chart, bandwidth_chart
 Sizes: sm (1col), md (2col), lg (3col), full (full width)
 Config by type:
 - stat: {entity_id, unit?}
@@ -479,7 +855,19 @@ Config by type:
 - camera: {entity_id}
 - quick_actions: {actions: [{label, entity_id, domain, service}]}
 - weather: {entity_id}
+- weather_card: {entity_id}
 - scene_buttons: {scenes: [{entity_id, label}]}
+- gauge: {entity_id, min, max, unit, thresholds: {warn, critical}}
+- light_control: {entities: [...]}
+- climate_control: {entity_id}
+- printer: {camera_entity, status_entity, progress_entity, nozzle_temp_entity, nozzle_target_entity, bed_temp_entity, bed_target_entity, remaining_time_entity, current_layer_entity, total_layers_entity, weight_entity, filament_entity?, online_entity?}
+- air_purifier: {fan_entity, pm25_entity, temperature_entity, humidity_entity, filter_life_entity, motor_speed_entity, climate_entity?}
+- room_environment: {temperature_entity, humidity_entity, temp_thresholds?, humidity_thresholds?}
+- health: {heart_rate_entity, steps_entity, activity_entity, sleep_entity?, battery_entity?, daily_distance_entity?, daily_floors_entity?, daily_calories_entity?, pressure_entity?, on_body_entity?}
+- presence: {entities: [...]}  (person.* or device_tracker.* entities, shows home/away pills)
+- power_chart: {hours?, entity_filter?}  (mini sparkline of power usage over time)
+- bandwidth_chart: {hours?}  (mini chart of network download/upload speeds)
+- smart_plug: {plugs: [{name, switch_entity, power_entity, today_entity, month_entity, voltage_entity, current_entity, overheated_entity?, overloaded_entity?}, ...]}
 
 RULES:
 - Preserve widgets the user did not ask to change.
@@ -569,21 +957,192 @@ async def edit_dashboard(req: DashboardEditRequest):
     }
 
 
+@app.get("/api/network")
+async def get_network(hours: int = 24):
+    """Network status: Deco mesh nodes, connected clients, bandwidth sensors + history."""
+    aliases = await _app_ctx.procedural.get_device_aliases()
+    network = _app_ctx.state_cache.get_network_data(aliases=aliases)
+
+    bw_eids = {s["entity_id"] for s in network["bandwidth_sensors"]}
+    history = await _app_ctx.procedural.get_energy_history(hours=hours)
+    bw_history = [h for h in history if h["entity_id"] in bw_eids]
+
+    return {
+        **network,
+        "bandwidth_history": bw_history,
+        "hours": hours,
+    }
+
+
 @app.get("/api/energy")
 async def get_energy(hours: int = 24):
-    """Current energy sensors + historical state change data."""
+    """Current energy sensors + historical state change data + cost."""
     current = _app_ctx.state_cache.get_energy_sensors()
     history = await _app_ctx.procedural.get_energy_history(hours=hours)
 
-    # Filter history to only include entities that are power/energy sensors
     energy_eids = {s["entity_id"] for s in current if s["device_class"] in ("power", "energy")}
     filtered_history = [h for h in history if h["entity_id"] in energy_eids]
+
+    total_kwh = sum(s["state"] for s in current if s["device_class"] == "energy")
+    total_cost = round(total_kwh * config.ENERGY_RATE, 2)
 
     return {
         "current": current,
         "history": filtered_history,
         "hours": hours,
+        "cost": {
+            "total": total_cost,
+            "rate": config.ENERGY_RATE,
+            "currency": config.ENERGY_CURRENCY,
+        },
     }
+
+
+# ---- Scenes ----
+
+class SceneCreateRequest(BaseModel):
+    name: str
+    icon: str = "scene"
+    entity_ids: list[str]
+
+
+@app.get("/api/scenes")
+async def list_scenes():
+    """List all saved scenes."""
+    scenes = await _app_ctx.procedural.get_scenes()
+    return {"scenes": scenes}
+
+
+@app.post("/api/scenes")
+async def create_scene(req: SceneCreateRequest):
+    """Snapshot current state of given entities and save as a scene."""
+    entities = []
+    for eid in req.entity_ids:
+        entity = _app_ctx.state_cache.get(eid)
+        if not entity:
+            continue
+        attrs = entity.get("attributes", {})
+        domain = eid.split(".")[0]
+        saved_attrs: dict = {}
+        if domain == "light":
+            for key in ("brightness", "color_temp_kelvin", "rgb_color", "hs_color", "color_mode"):
+                if attrs.get(key) is not None:
+                    saved_attrs[key] = attrs[key]
+        elif domain == "climate":
+            for key in ("temperature", "preset_mode", "fan_mode", "hvac_mode"):
+                if attrs.get(key) is not None:
+                    saved_attrs[key] = attrs[key]
+        elif domain == "fan":
+            for key in ("preset_mode", "percentage"):
+                if attrs.get(key) is not None:
+                    saved_attrs[key] = attrs[key]
+        entities.append({
+            "entity_id": eid,
+            "state": entity.get("state", "unknown"),
+            "attributes": saved_attrs,
+        })
+
+    if not entities:
+        raise HTTPException(status_code=400, detail="No valid entities found in state cache")
+
+    scene_id = req.name.lower().replace(" ", "_").replace("-", "_")
+    scene_id = "".join(c for c in scene_id if c.isalnum() or c == "_")
+
+    scene = await _app_ctx.procedural.create_scene(scene_id, req.name, entities, req.icon)
+    return scene
+
+
+@app.post("/api/scenes/{scene_id}/activate")
+async def activate_scene(scene_id: str):
+    """Restore all entity states saved in a scene."""
+    scene = await _app_ctx.procedural.get_scene(scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    headers = {"Authorization": f"Bearer {config.HA_TOKEN}", "Content-Type": "application/json"}
+    restored = 0
+
+    async with aiohttp.ClientSession() as session:
+        for entry in scene["entities"]:
+            eid = entry["entity_id"]
+            state = entry["state"]
+            attrs = entry.get("attributes", {})
+            domain = eid.split(".")[0]
+
+            if domain in ("light", "switch", "fan"):
+                service = "turn_on" if state == "on" else "turn_off"
+                payload: dict = {"entity_id": eid}
+                if service == "turn_on" and domain == "light":
+                    for key in ("brightness", "color_temp_kelvin", "rgb_color"):
+                        if key in attrs:
+                            payload[key] = attrs[key]
+                if service == "turn_on" and domain == "fan" and "preset_mode" in attrs:
+                    payload["preset_mode"] = attrs["preset_mode"]
+                url = f"{config.HA_URL}/api/services/{domain}/{service}"
+                async with session.post(url, headers=headers, json=payload) as resp:
+                    if resp.status == 200:
+                        restored += 1
+
+            elif domain == "climate":
+                if "preset_mode" in attrs:
+                    url = f"{config.HA_URL}/api/services/climate/set_preset_mode"
+                    async with session.post(url, headers=headers, json={"entity_id": eid, "preset_mode": attrs["preset_mode"]}) as resp:
+                        if resp.status == 200:
+                            restored += 1
+                if "temperature" in attrs:
+                    url = f"{config.HA_URL}/api/services/climate/set_temperature"
+                    async with session.post(url, headers=headers, json={"entity_id": eid, "temperature": attrs["temperature"]}) as resp:
+                        pass
+
+            elif domain == "scene":
+                url = f"{config.HA_URL}/api/services/scene/turn_on"
+                async with session.post(url, headers=headers, json={"entity_id": eid}) as resp:
+                    if resp.status == 200:
+                        restored += 1
+
+    return {"status": "ok", "scene": scene["name"], "restored": restored}
+
+
+@app.delete("/api/scenes/{scene_id}")
+async def delete_scene(scene_id: str):
+    """Delete a saved scene."""
+    deleted = await _app_ctx.procedural.delete_scene(scene_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    return {"status": "ok", "deleted": scene_id}
+
+
+# ---- Floorplan config ----
+
+DEFAULT_FLOORPLAN_CONFIG = {
+    "devices": [
+        {"svg_id": "light_bed", "entity_id": "light.bedside", "type": "light", "label": "Bedroom Light"},
+        {"svg_id": "light_foyer", "entity_id": "light.foyer", "type": "light", "label": "Foyer Light"},
+        {"svg_id": "light_lamp", "entity_id": "light.desk_lamp", "type": "light", "label": "Desk Lamp"},
+        {"svg_id": "plug_desk", "entity_id": "switch.desk", "type": "switch", "label": "Desk Plug"},
+        {"svg_id": "plug_printer", "entity_id": "switch.workstation", "type": "switch", "label": "Printer Plug"},
+        {"svg_id": "router_hallway", "entity_id": "device_tracker.hallway_deco", "type": "device_tracker", "label": "Hallway Router"},
+        {"svg_id": "router_bedroom", "entity_id": "device_tracker.bedroom_deco", "type": "device_tracker", "label": "Bedroom Router"},
+        {"svg_id": "camera_living", "entity_id": "camera.a1_03919d550407275_camera", "type": "camera", "label": "3D Printer Camera"},
+        {"svg_id": "device_air_purifier", "entity_id": "fan.xiaomi_smart_air_purifier_4", "type": "fan", "label": "Air Purifier"},
+        {"svg_id": "device_3d_printer", "entity_id": "sensor.a1_03919d550407275_print_status", "type": "sensor", "label": "3D Printer"},
+        {"svg_id": "sensor_foyer", "entity_id": "sensor.sensor_temperature", "type": "sensor", "label": "Foyer Sensor"},
+    ]
+}
+
+
+@app.get("/api/floorplan/config")
+async def get_floorplan_config():
+    """Get the SVG-to-entity mapping for the floorplan."""
+    cfg = await _app_ctx.procedural.get_floorplan_config()
+    return cfg or DEFAULT_FLOORPLAN_CONFIG
+
+
+@app.put("/api/floorplan/config")
+async def save_floorplan_config(req: dict):
+    """Save the SVG-to-entity mapping for the floorplan."""
+    await _app_ctx.procedural.save_floorplan_config(req)
+    return {"status": "ok"}
 
 
 def main():

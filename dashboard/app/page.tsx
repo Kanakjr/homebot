@@ -5,6 +5,8 @@ import { BlurFade } from "@/components/magicui/blur-fade";
 import StatusBadge from "@/components/StatusBadge";
 import DashboardRenderer from "@/components/DashboardRenderer";
 import DashboardAssistant from "@/components/DashboardAssistant";
+import PresenceBar from "@/components/PresenceBar";
+import { AiSummaryBanner } from "@/components/widgets";
 import { getHealth, getDashboardConfig } from "@/lib/api";
 import { useEntities } from "@/lib/hooks/useEntities";
 import type { HealthResponse, DashboardConfig } from "@/lib/types";
@@ -51,6 +53,14 @@ export default function DashboardPage() {
             {error && <StatusBadge status="error" label="offline" />}
           </div>
         </div>
+      </BlurFade>
+
+      <BlurFade delay={0.03}>
+        <PresenceBar entitiesData={entitiesData} />
+      </BlurFade>
+
+      <BlurFade delay={0.05}>
+        <AiSummaryBanner />
       </BlurFade>
 
       <BlurFade delay={0.1}>

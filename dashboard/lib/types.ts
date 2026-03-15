@@ -69,6 +69,13 @@ export interface SkillUpdate {
   notify?: boolean;
 }
 
+export interface SkillExecuteResponse {
+  status: string;
+  skill_name: string;
+  result: string;
+  duration_ms: number;
+}
+
 export interface EventLogEntry {
   entity_id: string;
   old_state: string;
@@ -96,6 +103,23 @@ export interface EntityInfo {
   entity_id: string;
   state: string;
   friendly_name: string;
+  // Light attributes
+  brightness?: number | null;
+  color_mode?: string | null;
+  supported_color_modes?: string[];
+  color_temp_kelvin?: number | null;
+  min_color_temp_kelvin?: number | null;
+  max_color_temp_kelvin?: number | null;
+  rgb_color?: [number, number, number] | null;
+  hs_color?: [number, number] | null;
+  // Climate attributes
+  temperature?: number | null;
+  current_temperature?: number | null;
+  hvac_modes?: string[];
+  preset_mode?: string | null;
+  preset_modes?: string[];
+  fan_mode?: string | null;
+  fan_modes?: string[];
 }
 
 export interface DomainGroup {
@@ -169,7 +193,19 @@ export type WidgetType =
   | "camera"
   | "quick_actions"
   | "weather"
-  | "scene_buttons";
+  | "scene_buttons"
+  | "weather_card"
+  | "gauge"
+  | "light_control"
+  | "climate_control"
+  | "printer"
+  | "air_purifier"
+  | "room_environment"
+  | "health"
+  | "presence"
+  | "power_chart"
+  | "bandwidth_chart"
+  | "smart_plug";
 
 export interface DashboardWidget {
   id: string;
@@ -188,6 +224,64 @@ export interface DashboardEditResponse {
   message: string;
 }
 
+export interface DashboardSummary {
+  summary: string;
+  generated_at: string;
+}
+
+// --- Network types ---
+
+export interface MeshNode {
+  entity_id: string;
+  friendly_name: string;
+  state: string;
+  ip: string;
+  mac: string;
+  model: string;
+  hw_version: string;
+  sw_version: string;
+  master: boolean;
+  internet_online: boolean;
+}
+
+export interface NetworkClient {
+  entity_id: string;
+  friendly_name: string;
+  state: string;
+  ip: string;
+  mac: string;
+  connection_type: string;
+  deco_device: string;
+  deco_mac: string;
+  down_kbps: number;
+  up_kbps: number;
+}
+
+export interface BandwidthSensor {
+  entity_id: string;
+  friendly_name: string;
+  state: number;
+  unit: string;
+}
+
+export interface BandwidthHistoryPoint {
+  entity_id: string;
+  value: number;
+  ts: string;
+}
+
+export interface NetworkResponse {
+  mesh_nodes: MeshNode[];
+  clients: NetworkClient[];
+  bandwidth_sensors: BandwidthSensor[];
+  bandwidth_history: BandwidthHistoryPoint[];
+  total_clients: number;
+  online_clients: number;
+  total_down_kbps: number;
+  total_up_kbps: number;
+  hours: number;
+}
+
 // --- Energy types ---
 
 export interface EnergySensor {
@@ -204,8 +298,124 @@ export interface EnergyHistoryPoint {
   ts: string;
 }
 
+export interface EnergyCost {
+  total: number;
+  rate: number;
+  currency: string;
+}
+
 export interface EnergyResponse {
   current: EnergySensor[];
   history: EnergyHistoryPoint[];
+  hours: number;
+  cost: EnergyCost;
+}
+
+// --- Analytics types ---
+
+export interface AnalyticsDataPoint {
+  day: string;
+  entity_id?: string;
+  domain?: string;
+  state?: string;
+  avg?: number;
+  max?: number;
+  samples?: number;
+  events?: number;
+  transitions?: number;
+}
+
+export interface AnalyticsResponse {
+  metric: string;
+  data: AnalyticsDataPoint[];
+  hours: number;
+}
+
+// --- Device alias types ---
+
+export interface DeviceAlias {
+  mac: string;
+  alias: string;
+  device_type: string;
+  icon: string;
+  is_presence: boolean;
+}
+
+export interface DeviceAliasesResponse {
+  aliases: DeviceAlias[];
+}
+
+// --- Notification rule types ---
+
+export interface NotificationRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  rule_type: string;
+  config: Record<string, unknown>;
+  cooldown_seconds: number;
+}
+
+export interface NotificationRulesResponse {
+  rules: NotificationRule[];
+}
+
+// --- Scene types ---
+
+export interface SceneEntity {
+  entity_id: string;
+  state: string;
+  attributes: Record<string, unknown>;
+}
+
+export interface Scene {
+  id: string;
+  name: string;
+  icon: string;
+  entities: SceneEntity[];
+  ts: string;
+}
+
+export interface ScenesResponse {
+  scenes: Scene[];
+}
+
+export interface SceneCreate {
+  name: string;
+  icon?: string;
+  entity_ids: string[];
+}
+
+// --- Floorplan types ---
+
+export interface FloorplanDevice {
+  svg_id: string;
+  entity_id: string;
+  type: string;
+  label: string;
+}
+
+export interface FloorplanConfig {
+  devices: FloorplanDevice[];
+}
+
+// --- Health data types ---
+
+export interface HealthSensorReading {
+  entity_id: string;
+  state: string | null;
+  unit: string;
+  friendly_name: string;
+  last_changed: string;
+}
+
+export interface HealthHistoryPoint {
+  ts: string;
+  value: number;
+}
+
+export interface HealthDataResponse {
+  current: Record<string, HealthSensorReading>;
+  history: Record<string, HealthHistoryPoint[]>;
   hours: number;
 }

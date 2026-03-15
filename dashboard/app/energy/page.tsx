@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { BlurFade } from "@/components/magicui/blur-fade";
-import { getEnergy } from "@/lib/api";
+import { getEnergy, getNetwork } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { EnergyResponse, EnergySensor, EnergyHistoryPoint } from "@/lib/types";
+import type { EnergyResponse, EnergySensor, EnergyHistoryPoint, NetworkResponse, BandwidthSensor } from "@/lib/types";
 import {
   ResponsiveContainer,
   LineChart,
@@ -94,6 +94,38 @@ function PowerGauge({ sensor }: PowerGaugeProps) {
   );
 }
 
+function BandwidthGauge({ sensor }: { sensor: BandwidthSensor }) {
+  const maxKbps = 10000;
+  const pct = Math.min((sensor.state / maxKbps) * 100, 100);
+  const isDown = sensor.entity_id.includes("down");
+  const label = sensor.state >= 1024
+    ? `${(sensor.state / 1024).toFixed(1)} MB/s`
+    : `${sensor.state.toFixed(0)} kB/s`;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <p className="text-xs text-neutral-500 truncate">{sensor.friendly_name}</p>
+      <div className="mt-2 flex items-end gap-2">
+        <span className={cn(
+          "text-2xl font-bold font-mono",
+          isDown ? "text-green-400" : "text-blue-400",
+        )}>
+          {label}
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all duration-500",
+            isDown ? "bg-green-400" : "bg-blue-400",
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function BatteryCard({ sensor }: { sensor: EnergySensor }) {
   const level = sensor.state;
   const isLow = level < 20;
@@ -125,6 +157,7 @@ function BatteryCard({ sensor }: { sensor: EnergySensor }) {
 
 export default function EnergyPage() {
   const [data, setData] = useState<EnergyResponse | null>(null);
+  const [networkData, setNetworkData] = useState<NetworkResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hours, setHours] = useState(24);
@@ -132,8 +165,12 @@ export default function EnergyPage() {
   const fetchData = useCallback(async (h: number) => {
     setLoading(true);
     try {
-      const result = await getEnergy(h);
-      setData(result);
+      const [energyResult, networkResult] = await Promise.all([
+        getEnergy(h),
+        getNetwork(h).catch(() => null),
+      ]);
+      setData(energyResult);
+      setNetworkData(networkResult);
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -238,7 +275,7 @@ export default function EnergyPage() {
 
       {/* Summary cards */}
       <BlurFade delay={0.05}>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <p className="text-xs text-neutral-500">Total Power</p>
             <p className="mt-1 text-2xl font-bold font-mono text-cyber-yellow">
@@ -251,6 +288,15 @@ export default function EnergyPage() {
             <p className="mt-1 text-2xl font-bold font-mono text-blue-400">
               {totalEnergy.toFixed(1)}
               <span className="ml-1 text-sm text-neutral-500">kWh</span>
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-xs text-neutral-500">Estimated Cost</p>
+            <p className="mt-1 text-2xl font-bold font-mono text-emerald-400">
+              {data?.cost.currency === "INR" ? "\u20B9" : "$"}{data?.cost.total.toFixed(2) ?? "0.00"}
+            </p>
+            <p className="mt-0.5 text-[10px] text-neutral-600 font-mono">
+              @{data?.cost.rate ?? 0}/{data?.cost.currency === "INR" ? "kWh" : "kWh"}
             </p>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -345,18 +391,28 @@ export default function EnergyPage() {
               Energy Consumption
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {energySensors.map((s) => (
-                <div
-                  key={s.entity_id}
-                  className="rounded-xl border border-white/10 bg-white/[0.03] p-4"
-                >
-                  <p className="text-xs text-neutral-500 truncate">{s.friendly_name}</p>
-                  <p className="mt-2 text-2xl font-bold font-mono text-blue-400">
-                    {s.state.toFixed(2)}
-                    <span className="ml-1 text-sm text-neutral-500">{s.unit}</span>
-                  </p>
-                </div>
-              ))}
+              {energySensors.map((s) => {
+                const cost = s.unit === "kWh" && data?.cost
+                  ? s.state * data.cost.rate
+                  : null;
+                return (
+                  <div
+                    key={s.entity_id}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] p-4"
+                  >
+                    <p className="text-xs text-neutral-500 truncate">{s.friendly_name}</p>
+                    <p className="mt-2 text-2xl font-bold font-mono text-blue-400">
+                      {s.state.toFixed(2)}
+                      <span className="ml-1 text-sm text-neutral-500">{s.unit}</span>
+                    </p>
+                    {cost !== null && cost > 0 && (
+                      <p className="mt-1 text-xs font-mono text-emerald-400/70">
+                        {data?.cost.currency === "INR" ? "\u20B9" : "$"}{cost.toFixed(2)}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </BlurFade>
@@ -372,6 +428,37 @@ export default function EnergyPage() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {batteries.map((s) => (
                 <BatteryCard key={s.entity_id} sensor={s} />
+              ))}
+            </div>
+          </div>
+        </BlurFade>
+      )}
+
+      {/* Network bandwidth */}
+      {networkData && networkData.bandwidth_sensors.length > 0 && (
+        <BlurFade delay={0.3}>
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-medium text-neutral-300">
+                Network Bandwidth
+              </h2>
+              <div className="flex items-center gap-2 text-xs font-mono">
+                <span className="text-green-400">
+                  {networkData.total_down_kbps >= 1024
+                    ? `${(networkData.total_down_kbps / 1024).toFixed(1)} MB/s`
+                    : `${networkData.total_down_kbps.toFixed(0)} kB/s`}
+                </span>
+                <span className="text-neutral-600">/</span>
+                <span className="text-blue-400">
+                  {networkData.total_up_kbps >= 1024
+                    ? `${(networkData.total_up_kbps / 1024).toFixed(1)} MB/s`
+                    : `${networkData.total_up_kbps.toFixed(0)} kB/s`}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {networkData.bandwidth_sensors.map((s) => (
+                <BandwidthGauge key={s.entity_id} sensor={s} />
               ))}
             </div>
           </div>

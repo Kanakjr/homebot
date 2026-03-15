@@ -109,11 +109,24 @@ def create_skill_tools(procedural: ProceduralMemory, tool_map):
                     results.append({"tool": tool_name, "error": "unknown tool"})
             return json.dumps({"status": "executed", "skill": skill["name"], "results": results}, default=str)
         elif skill["mode"] == "ai":
+            prompt = skill.get("ai_prompt", "")
+            event_log = await procedural.get_event_log(hours=24)
+            if event_log:
+                log_lines = [
+                    f"- [{e['ts']}] {e['entity_id']}: {e['old_state']} -> {e['new_state']}"
+                    for e in event_log[-30:]
+                ]
+                prompt += f"\n\nRecent event log:\n" + "\n".join(log_lines)
             return json.dumps({
                 "status": "ai_skill",
                 "skill": skill["name"],
-                "ai_prompt": skill.get("ai_prompt", ""),
-                "message": "This is an AI-powered skill. The prompt has been returned for you to reason about.",
+                "ai_prompt": prompt,
+                "instruction": (
+                    "IMPORTANT: This is an AI-powered skill. You MUST now follow "
+                    "the ai_prompt above as your current task. Use the available tools "
+                    "to gather data and produce the requested output. Do NOT just "
+                    "echo the prompt back -- execute it fully."
+                ),
             })
         return json.dumps({"error": "Unknown skill mode"})
 

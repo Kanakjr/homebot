@@ -52,6 +52,7 @@ EXCLUDES=(
   --exclude '.venv'
   --exclude '__pycache__'
   --exclude '.smbdelete*'
+  --exclude '.deploy-trigger'
 )
 
 if [ "$SYNC_GIT" = false ]; then
@@ -64,3 +65,9 @@ rsync -av --delete \
 
 echo ""
 echo "Sync complete."
+
+if [ "$PULL" = false ]; then
+  TRIGGER="${DEST}.deploy-trigger"
+  echo "$(date '+%Y-%m-%d %H:%M:%S')" > "$TRIGGER"
+  echo "Deploy triggered -- deployer container will rebuild homebot + dashboard."
+fi

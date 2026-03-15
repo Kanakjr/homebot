@@ -68,3 +68,47 @@
 .animate-shimmer {
   animation: shimmer 3s linear infinite;
 }
+
+/* Light brightness slider */
+.light-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 8px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.light-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #FFD700;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  cursor: grab;
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+.light-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 16px rgba(255, 215, 0, 0.7);
+  transform: scale(1.15);
+}
+.light-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.05);
+}
+.light-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #FFD700;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  cursor: grab;
+}
+.light-slider:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

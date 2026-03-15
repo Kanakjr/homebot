@@ -16,9 +16,9 @@ import time
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from telegram import Bot
 
 import config
+from notifier import TelegramNotifier
 from state import StateCache
 from memory.procedural import ProceduralMemory
 from tools.registry import ToolMap
@@ -39,14 +39,12 @@ class Reactor:
         state_cache: StateCache,
         procedural: ProceduralMemory,
         agent,
-        bot: Bot,
-        allowed_users: list[int],
+        notifier: TelegramNotifier,
     ):
         self.state = state_cache
         self.procedural = procedural
         self.agent = agent
-        self.bot = bot
-        self.allowed_users = allowed_users
+        self.notifier = notifier
         self.scheduler = AsyncIOScheduler(timezone=config.TZ)
         self._tool_map: ToolMap | None = None
         self._notif_cooldowns: dict[str, float] = {}
@@ -91,7 +89,7 @@ class Reactor:
             if cron_expr:
                 try:
                     self.scheduler.add_job(
-                        self._fire_skill,
+                        self.fire_skill,
                         CronTrigger.from_crontab(cron_expr),
                         args=[skill["id"]],
                         id=f"skill_{skill['id']}",
@@ -127,7 +125,7 @@ class Reactor:
             if not self._matches_condition(trigger, old_state, new_state):
                 continue
             log.info("State trigger matched for skill '%s'", skill["name"])
-            asyncio.create_task(self._fire_skill(skill["id"], context={
+            asyncio.create_task(self.fire_skill(skill["id"], context={
                 "entity_id": entity_id,
                 "old_state": old_state.get("state", "") if old_state else "",
                 "new_state": new_state.get("state", ""),
@@ -168,10 +166,11 @@ class Reactor:
 
         return True
 
-    async def _fire_skill(self, skill_id: str, context: dict | None = None):
+    async def fire_skill(self, skill_id: str, context: dict | None = None) -> str | None:
+        """Execute a skill by ID. Returns the result text, or None if skill not found/inactive."""
         skill = await self.procedural.get_skill(skill_id)
         if not skill or not skill.get("active"):
-            return
+            return None
 
         log.info("Firing skill: %s (mode=%s)", skill["name"], skill["mode"])
 
@@ -183,14 +182,32 @@ class Reactor:
             else:
                 result_text = f"Unknown mode for skill {skill['name']}"
 
-            if skill.get("notify") and self.allowed_users:
-                for uid in self.allowed_users:
-                    try:
-                        await self.bot.send_message(chat_id=uid, text=result_text)
-                    except Exception:
-                        log.exception("Failed to notify user %s", uid)
+            if skill.get("notify"):
+                await self.notifier.send(result_text)
+
+            return result_text
         except Exception:
             log.exception("Failed to fire skill %s", skill_id)
+            return f"Error executing skill '{skill['name']}'"
+
+    async def fire_skill_by_name(self, query: str, context: dict | None = None) -> str:
+        """Look up a skill by name or ID and execute it. Returns result text."""
+        import re
+        skill = await self.procedural.get_skill(query)
+        if not skill:
+            slug = re.sub(r"[^a-z0-9]+", "_", query.lower()).strip("_")
+            skill = await self.procedural.get_skill(slug)
+        if not skill:
+            all_skills = await self.procedural.list_skills()
+            for s in all_skills:
+                if s["name"].lower() == query.lower():
+                    skill = s
+                    break
+        if not skill:
+            return f"Skill '{query}' not found. Use /skills to see available skills."
+        if not skill.get("active"):
+            return f"Skill '{skill['name']}' is disabled."
+        return await self.fire_skill(skill["id"], context) or f"Skill '{skill['name']}' returned no result."
 
     async def _execute_static(self, skill: dict) -> str:
         if not self._tool_map:
@@ -207,7 +224,14 @@ class Reactor:
         return f"Skill '{skill['name']}' executed:\n" + "\n".join(results)
 
     async def _execute_ai(self, skill: dict, context: dict | None = None) -> str:
-        prompt = skill.get("ai_prompt", "")
+        prompt = (
+            f"[SKILL EXECUTION: {skill['name']}]\n"
+            "You are executing a skill RIGHT NOW. Do NOT mention that the skill "
+            "already exists or suggest waiting for it. Perform the task below "
+            "immediately using your tools and live state data. Produce the "
+            "requested output directly.\n\n"
+        )
+        prompt += skill.get("ai_prompt", "")
         if context:
             prompt += f"\n\nTrigger context: {json.dumps(context, default=str)}"
 
@@ -219,9 +243,11 @@ class Reactor:
             )
             prompt += f"\n\nRecent event log:\n{log_text}"
 
-        chat_id = self.allowed_users[0] if self.allowed_users else 0
+        # Use a unique negative chat_id so skill runs don't pollute user history
+        import random
+        ephemeral_chat_id = -random.randint(1_000_000, 9_999_999)
         result = await self.agent.run(
-            chat_id=chat_id,
+            chat_id=ephemeral_chat_id,
             user_message=prompt,
             system_prompt_override=await self.agent._build_system_prompt(),
         )
@@ -238,18 +264,12 @@ class Reactor:
 
     async def _send_notification(self, message: str):
         """Send a notification to all allowed Telegram users."""
-        if not self.allowed_users:
-            return
-        for uid in self.allowed_users:
-            try:
-                await self.bot.send_message(chat_id=uid, text=message)
-            except Exception:
-                log.exception("Failed to send proactive notification to %s", uid)
+        await self.notifier.send(message)
 
     async def _check_proactive_notifications(
         self, entity_id: str, old_state: dict | None, new_state: dict
     ):
-        """Built-in smart notification rules that fire without explicit skills."""
+        """Built-in smart notification rules backed by DB preferences."""
         old_val = old_state.get("state", "") if old_state else ""
         new_val = new_state.get("state", "")
         attrs = new_state.get("attributes", {})
@@ -257,35 +277,86 @@ class Reactor:
         domain = entity_id.split(".")[0]
         dev_class = attrs.get("device_class", "")
 
-        # 3D printer finished: printing/preparing -> idle/complete
-        if "printo" in entity_id.lower() or "print" in friendly.lower():
-            if old_val in ("printing", "preparing") and new_val in ("idle", "complete", "standby", "off"):
-                if self._can_notify(f"printer_done:{entity_id}"):
-                    log.info("Proactive: printer finished (%s)", entity_id)
-                    await self._send_notification(
-                        f"🖨 Your 3D printer finished! {friendly} is now {new_val}."
-                    )
+        rules = await self.procedural.get_notification_rules()
+        rule_map = {r["id"]: r for r in rules}
 
-        # Battery critically low (< 15%)
-        if dev_class == "battery" and old_val != new_val:
+        def _is_enabled(rule_id: str) -> bool:
+            r = rule_map.get(rule_id)
+            return r["enabled"] if r else True
+
+        def _get_config(rule_id: str) -> dict:
+            r = rule_map.get(rule_id)
+            return r.get("config", {}) if r else {}
+
+        # 3D printer finished
+        if _is_enabled("printer_done"):
+            if "printo" in entity_id.lower() or "print" in friendly.lower():
+                if old_val in ("printing", "preparing") and new_val in ("idle", "complete", "standby", "off"):
+                    if self._can_notify(f"printer_done:{entity_id}"):
+                        await self._send_notification(
+                            f"Your 3D printer finished! {friendly} is now {new_val}."
+                        )
+
+        # Battery critically low
+        if _is_enabled("battery_low") and dev_class == "battery" and old_val != new_val:
+            threshold = _get_config("battery_low").get("threshold", 15)
             try:
                 new_pct = float(new_val)
                 old_pct = float(old_val) if old_val else 100
-                if new_pct < 15 and old_pct >= 15:
+                if new_pct < threshold and old_pct >= threshold:
                     if self._can_notify(f"battery_low:{entity_id}"):
-                        log.info("Proactive: battery low (%s at %s%%)", friendly, new_val)
                         await self._send_notification(
-                            f"🔋 Low battery: {friendly} is at {new_val}%"
+                            f"Low battery: {friendly} is at {new_val}%"
                         )
             except (ValueError, TypeError):
                 pass
 
-        # Person/device_tracker arriving home
-        if domain in ("person", "device_tracker"):
-            if old_val in ("not_home", "away") and new_val == "home":
+        # Network device went offline (Deco)
+        if domain == "device_tracker" and attrs.get("source_type") == "router":
+            device_type = attrs.get("device_type", "")
+            if device_type == "deco" and _is_enabled("deco_offline"):
+                if old_val == "home" and new_val == "not_home":
+                    if self._can_notify(f"deco_offline:{entity_id}"):
+                        await self._send_notification(
+                            f"Deco mesh node '{friendly}' went offline. Check your network connectivity."
+                        )
+                elif old_val == "not_home" and new_val == "home":
+                    if self._can_notify(f"deco_online:{entity_id}"):
+                        await self._send_notification(
+                            f"Deco mesh node '{friendly}' is back online."
+                        )
+            elif device_type == "client" and _is_enabled("device_disconnect"):
+                keywords = _get_config("device_disconnect").get(
+                    "important_keywords", ["mac mini", "pixel", "ipad", "printer", "server"]
+                )
+                is_important = any(kw in friendly.lower() for kw in keywords)
+                if is_important and old_val == "home" and new_val == "not_home":
+                    if self._can_notify(f"net_offline:{entity_id}"):
+                        await self._send_notification(
+                            f"'{friendly}' disconnected from network "
+                            f"(was on {attrs.get('deco_device', 'unknown')} node)."
+                        )
+
+        # Person arriving/leaving home (HA person entities + Deco presence devices)
+        is_presence_entity = False
+        if domain == "person":
+            is_presence_entity = True
+        elif domain == "device_tracker" and attrs.get("source_type") == "router" and attrs.get("device_type") == "client":
+            device_mac = attrs.get("mac", "").upper()
+            if device_mac:
+                presence_devs = await self.procedural.get_presence_devices()
+                presence_macs = {d["mac"].upper() for d in presence_devs}
+                is_presence_entity = device_mac in presence_macs
+
+        if is_presence_entity:
+            presence_name = friendly
+            aliases = await self.procedural.get_device_aliases()
+            device_mac = attrs.get("mac", "").upper()
+            if device_mac and device_mac in aliases:
+                presence_name = aliases[device_mac].get("alias", friendly)
+
+            if old_val in ("not_home", "away") and new_val == "home" and _is_enabled("welcome_home"):
                 if self._can_notify(f"welcome:{entity_id}"):
-                    log.info("Proactive: %s arrived home", friendly)
-                    # Build a quick status snippet
                     lights_on = []
                     for eid, st in self.state._states.items():
                         if eid.startswith("light.") and st.get("state") == "on":
@@ -293,14 +364,10 @@ class Reactor:
                             if "printo" not in name.lower():
                                 lights_on.append(name)
                     status = f"Lights on: {', '.join(lights_on)}" if lights_on else "All lights off"
-                    await self._send_notification(
-                        f"🏠 Welcome home, {friendly}! {status}."
-                    )
+                    await self._send_notification(f"Welcome home, {presence_name}! {status}.")
 
-            elif old_val == "home" and new_val in ("not_home", "away"):
+            elif old_val == "home" and new_val in ("not_home", "away") and _is_enabled("left_home"):
                 if self._can_notify(f"left:{entity_id}"):
-                    log.info("Proactive: %s left home", friendly)
-                    # Check if anything was left on
                     left_on = []
                     for eid, st in self.state._states.items():
                         if eid.startswith(("light.", "switch.")) and st.get("state") == "on":
@@ -310,9 +377,9 @@ class Reactor:
                                 left_on.append(name)
                     if left_on:
                         await self._send_notification(
-                            f"👋 {friendly} left home. Still on: {', '.join(left_on[:5])}"
+                            f"{presence_name} left home. Still on: {', '.join(left_on[:5])}"
                         )
 
     async def _prune_event_log(self):
-        await self.procedural.prune_event_log(keep_hours=72)
-        log.info("Pruned event log (kept 72h)")
+        await self.procedural.prune_event_log(keep_hours=720)
+        log.info("Pruned event log (kept 30 days)")
