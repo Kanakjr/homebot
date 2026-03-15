@@ -27,18 +27,31 @@ import type {
   Scene,
   SceneCreate as SceneCreatePayload,
   FloorplanConfig,
+  MediaOverview,
+  TorrentsResponse,
+  SonarrResponse,
+  RadarrResponse,
+  JellyfinLibraryResponse,
+  JellyseerrRequestsResponse,
+  MediaSearchResponse,
 } from "./types";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+
+function authHeaders(extra?: HeadersInit): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    ...(API_KEY && { "X-API-Key": API_KEY }),
+    ...extra,
+  };
+}
 
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+    headers: authHeaders(init?.headers as Record<string, string>),
   });
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${await res.text()}`);
@@ -62,7 +75,7 @@ export async function* streamChatEvents(
 ): AsyncGenerator<{ type: string; data: string }> {
   const res = await fetch(`${BASE_URL}/api/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(),
     body: JSON.stringify(req),
     signal,
   });
@@ -161,7 +174,10 @@ export async function getHistory(chatId: number, limit = 50): Promise<HistoryRes
 }
 
 export async function clearHistory(chatId: number): Promise<void> {
-  await fetch(`${BASE_URL}/api/chat/${chatId}/history`, { method: "DELETE" });
+  await fetch(`${BASE_URL}/api/chat/${chatId}/history`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
 }
 
 export async function toggleEntity(
@@ -323,4 +339,85 @@ export async function deleteScene(id: string): Promise<void> {
 
 export async function getFloorplanConfig(): Promise<FloorplanConfig> {
   return fetchJSON<FloorplanConfig>("/api/floorplan/config");
+}
+
+// --- Media ---
+
+export async function getMediaOverview(): Promise<MediaOverview> {
+  return fetchJSON<MediaOverview>("/api/media/overview");
+}
+
+export async function mediaSearch(q: string, type = ""): Promise<MediaSearchResponse> {
+  const params = new URLSearchParams({ q });
+  if (type) params.set("type", type);
+  return fetchJSON<MediaSearchResponse>(`/api/media/search?${params}`);
+}
+
+export async function getMediaDownloads(): Promise<TorrentsResponse> {
+  return fetchJSON<TorrentsResponse>("/api/media/downloads");
+}
+
+export async function addMediaDownload(url: string): Promise<{ status: string; name: string; id?: number }> {
+  return fetchJSON("/api/media/downloads", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+}
+
+export async function mediaDownloadAction(
+  torrentId: number,
+  action: "pause" | "resume",
+): Promise<{ status: string }> {
+  return fetchJSON(`/api/media/downloads/${torrentId}/action`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
+}
+
+export async function getMediaTV(): Promise<SonarrResponse> {
+  return fetchJSON<SonarrResponse>("/api/media/tv");
+}
+
+export async function addMediaTV(
+  tvdbId: number,
+  qualityProfileId = 1,
+  rootFolderPath = "/data/tv",
+): Promise<{ status: string; title: string; id: number }> {
+  return fetchJSON("/api/media/tv", {
+    method: "POST",
+    body: JSON.stringify({ tvdb_id: tvdbId, quality_profile_id: qualityProfileId, root_folder_path: rootFolderPath }),
+  });
+}
+
+export async function getMediaMovies(): Promise<RadarrResponse> {
+  return fetchJSON<RadarrResponse>("/api/media/movies");
+}
+
+export async function addMediaMovie(
+  tmdbId: number,
+  qualityProfileId = 1,
+  rootFolderPath = "/data/movies",
+): Promise<{ status: string; title: string; id: number }> {
+  return fetchJSON("/api/media/movies", {
+    method: "POST",
+    body: JSON.stringify({ tmdb_id: tmdbId, quality_profile_id: qualityProfileId, root_folder_path: rootFolderPath }),
+  });
+}
+
+export async function getMediaLibrary(): Promise<JellyfinLibraryResponse> {
+  return fetchJSON<JellyfinLibraryResponse>("/api/media/library");
+}
+
+export async function getMediaRequests(): Promise<JellyseerrRequestsResponse> {
+  return fetchJSON<JellyseerrRequestsResponse>("/api/media/requests");
+}
+
+export async function createMediaRequest(
+  mediaId: number,
+  mediaType: "movie" | "tv",
+): Promise<{ id: number }> {
+  return fetchJSON("/api/media/requests", {
+    method: "POST",
+    body: JSON.stringify({ media_id: mediaId, media_type: mediaType }),
+  });
 }

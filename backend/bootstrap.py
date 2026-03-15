@@ -65,6 +65,7 @@ class App:
             from tools.memory_tools import create_memory_tools
             from tools.n8n import create_n8n_tools
             from tools.sonarr import create_sonarr_tools
+            from tools.radarr import create_radarr_tools
             from tools.transmission import create_transmission_tools
             from tools.jellyseerr import create_jellyseerr_tools
             from tools.prowlarr import create_prowlarr_tools
@@ -78,6 +79,7 @@ class App:
             self.tool_map.register_many(create_memory_tools(self.semantic))
             self.tool_map.register_many(create_n8n_tools())
             self.tool_map.register_many(create_sonarr_tools())
+            self.tool_map.register_many(create_radarr_tools())
             self.tool_map.register_many(create_transmission_tools())
             self.tool_map.register_many(create_jellyseerr_tools())
             self.tool_map.register_many(create_prowlarr_tools())

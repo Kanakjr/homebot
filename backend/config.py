@@ -60,6 +60,9 @@ N8N_API_KEY = os.environ.get("N8N_API_KEY", "")
 SONARR_URL = os.environ.get("SONARR_URL", "http://localhost:8989")
 SONARR_API_KEY = os.environ.get("SONARR_API_KEY", "")
 
+RADARR_URL = os.environ.get("RADARR_URL", "http://localhost:7878")
+RADARR_API_KEY = os.environ.get("RADARR_API_KEY", "")
+
 TRANSMISSION_URL = os.environ.get("TRANSMISSION_URL", "http://localhost:9091")
 
 JELLYSEERR_URL = os.environ.get("JELLYSEERR_URL", "http://localhost:5055")

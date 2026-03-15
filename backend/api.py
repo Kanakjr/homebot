@@ -39,9 +39,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiohttp
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import config
@@ -159,6 +159,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_API_KEY = os.environ.get("API_KEY", "")
+_AUTH_SKIP_PREFIXES = ("/docs", "/openapi.json", "/api/snapshots/")
+
+
+@app.middleware("http")
+async def verify_api_key(request: Request, call_next):
+    if (
+        _API_KEY
+        and request.method != "OPTIONS"
+        and request.url.path.startswith("/api/")
+        and not any(request.url.path.startswith(p) for p in _AUTH_SKIP_PREFIXES)
+    ):
+        if request.headers.get("X-API-Key") != _API_KEY:
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
+    return await call_next(request)
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -1155,6 +1171,562 @@ async def save_floorplan_config(req: dict):
     """Save the SVG-to-entity mapping for the floorplan."""
     await _app_ctx.procedural.save_floorplan_config(req)
     return {"status": "ok"}
+
+
+# ---- Media service endpoints ----
+
+class AddTorrentRequest(BaseModel):
+    url: str = Field(..., description="Torrent URL or magnet link")
+
+
+class TorrentActionRequest(BaseModel):
+    action: str = Field(..., description="pause or resume")
+
+
+class AddSeriesRequest(BaseModel):
+    tvdb_id: int
+    quality_profile_id: int = 1
+    root_folder_path: str = "/data/tv"
+
+
+class AddMovieRequest(BaseModel):
+    tmdb_id: int
+    quality_profile_id: int = 1
+    root_folder_path: str = "/data/movies"
+
+
+class MediaRequestCreate(BaseModel):
+    media_id: int
+    media_type: str = Field(..., description="movie or tv")
+
+
+async def _transmission_rpc(method: str, arguments: dict | None = None) -> dict:
+    """Direct Transmission RPC call for media endpoints."""
+    rpc_url = f"{config.TRANSMISSION_URL}/transmission/rpc"
+    headers = {"Content-Type": "application/json"}
+    payload = {"method": method}
+    if arguments:
+        payload["arguments"] = arguments
+    async with aiohttp.ClientSession() as session:
+        async with session.post(rpc_url, headers=headers, json=payload) as resp:
+            if resp.status == 409:
+                headers["X-Transmission-Session-Id"] = resp.headers.get("X-Transmission-Session-Id", "")
+                async with session.post(rpc_url, headers=headers, json=payload) as resp2:
+                    return await resp2.json() if resp2.status == 200 else {}
+            return await resp.json() if resp.status == 200 else {}
+
+
+def _torrent_status(status: int) -> str:
+    return {0: "stopped", 1: "queued_verify", 2: "verifying", 3: "queued_download",
+            4: "downloading", 5: "queued_seed", 6: "seeding"}.get(status, "unknown")
+
+
+@app.get("/api/media/overview")
+async def media_overview():
+    """Aggregated media overview: sessions, downloads, queue counts, requests."""
+    results: dict = {
+        "sessions": {"count": 0, "items": []},
+        "downloads": {"count": 0, "active": 0, "download_speed": 0, "upload_speed": 0},
+        "sonarr_queue": 0,
+        "radarr_queue": 0,
+        "requests_pending": 0,
+    }
+
+    async def fetch_sessions():
+        try:
+            headers = {"X-Emby-Token": config.JELLYFIN_API_KEY}
+            async with aiohttp.ClientSession() as s:
+                async with s.get(f"{config.JELLYFIN_URL}/Sessions", headers=headers) as resp:
+                    if resp.status == 200:
+                        sessions = await resp.json()
+                        items = []
+                        for sess in sessions:
+                            now_playing = sess.get("NowPlayingItem")
+                            if now_playing:
+                                play_state = sess.get("PlayState", {})
+                                items.append({
+                                    "device": sess.get("DeviceName"),
+                                    "client": sess.get("Client"),
+                                    "user": sess.get("UserName"),
+                                    "playing": now_playing.get("Name"),
+                                    "type": now_playing.get("Type"),
+                                    "series": now_playing.get("SeriesName"),
+                                    "season": now_playing.get("ParentIndexNumber"),
+                                    "episode": now_playing.get("IndexNumber"),
+                                    "paused": play_state.get("IsPaused", False),
+                                })
+                        results["sessions"] = {"count": len(items), "items": items}
+        except Exception as e:
+            log.warning("media overview: jellyfin sessions failed: %s", e)
+
+    async def fetch_downloads():
+        try:
+            data = await _transmission_rpc("torrent-get", {
+                "fields": ["id", "name", "status", "percentDone", "rateDownload",
+                           "rateUpload", "eta", "totalSize", "sizeWhenDone"]
+            })
+            torrents = data.get("arguments", {}).get("torrents", [])
+            active = [t for t in torrents if t.get("status") in (3, 4)]
+            total_down = sum(t.get("rateDownload", 0) for t in torrents)
+            total_up = sum(t.get("rateUpload", 0) for t in torrents)
+            results["downloads"] = {
+                "count": len(torrents),
+                "active": len(active),
+                "download_speed": total_down,
+                "upload_speed": total_up,
+            }
+        except Exception as e:
+            log.warning("media overview: transmission failed: %s", e)
+
+    async def fetch_sonarr_queue():
+        try:
+            headers = {"X-Api-Key": config.SONARR_API_KEY}
+            async with aiohttp.ClientSession() as s:
+                async with s.get(f"{config.SONARR_URL}/api/v3/queue", headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results["sonarr_queue"] = len(data.get("records", []))
+        except Exception as e:
+            log.warning("media overview: sonarr queue failed: %s", e)
+
+    async def fetch_radarr_queue():
+        try:
+            headers = {"X-Api-Key": config.RADARR_API_KEY}
+            async with aiohttp.ClientSession() as s:
+                async with s.get(f"{config.RADARR_URL}/api/v3/queue", headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results["radarr_queue"] = len(data.get("records", []))
+        except Exception as e:
+            log.warning("media overview: radarr queue failed: %s", e)
+
+    async def fetch_requests():
+        try:
+            headers = {"X-Api-Key": config.JELLYSEERR_API_KEY}
+            async with aiohttp.ClientSession() as s:
+                async with s.get(f"{config.JELLYSEERR_URL}/api/v1/request/count", headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results["requests_pending"] = data.get("pending", 0)
+        except Exception as e:
+            log.warning("media overview: jellyseerr requests failed: %s", e)
+
+    await asyncio.gather(
+        fetch_sessions(), fetch_downloads(),
+        fetch_sonarr_queue(), fetch_radarr_queue(), fetch_requests(),
+    )
+    return results
+
+
+@app.get("/api/media/search")
+async def media_search(q: str = "", type: str = ""):
+    """Universal search across Jellyseerr, Prowlarr, and Jellyfin."""
+    if not q:
+        raise HTTPException(status_code=400, detail="Query parameter 'q' is required")
+
+    search_types = {t.strip() for t in type.split(",") if t.strip()} if type else set()
+    results: dict = {"jellyseerr": [], "prowlarr": [], "jellyfin": []}
+
+    async def search_jellyseerr():
+        if search_types and "torrent" in search_types:
+            return
+        try:
+            from urllib.parse import quote
+            headers = {"X-Api-Key": config.JELLYSEERR_API_KEY}
+            url = f"{config.JELLYSEERR_URL}/api/v1/search?query={quote(q)}&page=1&language=en"
+            async with aiohttp.ClientSession() as s:
+                async with s.get(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for r in data.get("results", [])[:10]:
+                            media_info = r.get("mediaInfo") or {}
+                            results["jellyseerr"].append({
+                                "id": r.get("id"),
+                                "title": r.get("title") or r.get("name"),
+                                "media_type": r.get("mediaType"),
+                                "year": (r.get("releaseDate") or r.get("firstAirDate") or "")[:4],
+                                "overview": (r.get("overview") or "")[:200],
+                                "poster_path": r.get("posterPath"),
+                                "status": media_info.get("status") if media_info else "not_requested",
+                            })
+        except Exception as e:
+            log.warning("media search: jellyseerr failed: %s", e)
+
+    async def search_prowlarr():
+        if search_types and not search_types.intersection({"torrent", "all"}):
+            return
+        try:
+            headers = {"X-Api-Key": config.PROWLARR_API_KEY}
+            params: dict = {"query": q, "type": "search"}
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as s:
+                async with s.get(f"{config.PROWLARR_URL}/api/v1/search", headers=headers, params=params) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for r in data[:15]:
+                            download_url = r.get("downloadUrl", "")
+                            guid = r.get("guid", "")
+                            if not download_url and guid.startswith("magnet:"):
+                                download_url = guid
+                            results["prowlarr"].append({
+                                "title": r.get("title"),
+                                "indexer": r.get("indexer"),
+                                "size_mb": round(r.get("size", 0) / 1024 / 1024),
+                                "seeders": r.get("seeders"),
+                                "leechers": r.get("leechers"),
+                                "download_url": download_url,
+                                "categories": [c.get("name") for c in r.get("categories", [])],
+                            })
+        except Exception as e:
+            log.warning("media search: prowlarr failed: %s", e)
+
+    async def search_jellyfin():
+        if search_types and "torrent" in search_types:
+            return
+        try:
+            headers = {"X-Emby-Token": config.JELLYFIN_API_KEY}
+            params = {"searchTerm": q, "Recursive": "true",
+                      "Fields": "Overview,Genres,RunTimeTicks,ProductionYear", "Limit": "10"}
+            async with aiohttp.ClientSession() as s:
+                async with s.get(f"{config.JELLYFIN_URL}/Items", headers=headers, params=params) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for it in data.get("Items", []):
+                            ticks = it.get("RunTimeTicks")
+                            duration = ""
+                            if ticks:
+                                secs = ticks // 10_000_000
+                                h, rem = divmod(secs, 3600)
+                                m, _ = divmod(rem, 60)
+                                duration = f"{h}h{m:02d}m" if h else f"{m}m"
+                            results["jellyfin"].append({
+                                "id": it.get("Id"),
+                                "name": it.get("Name"),
+                                "type": it.get("Type"),
+                                "year": it.get("ProductionYear"),
+                                "duration": duration,
+                                "genres": it.get("Genres", [])[:3],
+                                "overview": (it.get("Overview") or "")[:200],
+                            })
+        except Exception as e:
+            log.warning("media search: jellyfin failed: %s", e)
+
+    await asyncio.gather(search_jellyseerr(), search_prowlarr(), search_jellyfin())
+    return results
+
+
+@app.get("/api/media/downloads")
+async def media_downloads():
+    """List all Transmission torrents with progress and speeds."""
+    data = await _transmission_rpc("torrent-get", {
+        "fields": ["id", "name", "status", "percentDone", "rateDownload",
+                   "rateUpload", "eta", "totalSize", "sizeWhenDone",
+                   "uploadedEver", "downloadedEver", "addedDate"]
+    })
+    torrents = data.get("arguments", {}).get("torrents", [])
+    items = []
+    for t in torrents:
+        items.append({
+            "id": t["id"],
+            "name": t["name"],
+            "status": _torrent_status(t.get("status", -1)),
+            "progress": round(t.get("percentDone", 0) * 100, 1),
+            "download_speed": t.get("rateDownload", 0),
+            "upload_speed": t.get("rateUpload", 0),
+            "eta": t.get("eta", -1),
+            "size": t.get("sizeWhenDone", 0),
+            "downloaded": t.get("downloadedEver", 0),
+            "uploaded": t.get("uploadedEver", 0),
+            "added": t.get("addedDate", 0),
+        })
+    return {"torrents": items, "count": len(items)}
+
+
+@app.post("/api/media/downloads")
+async def media_add_download(req: AddTorrentRequest):
+    """Add a torrent by URL or magnet link."""
+    result = await _transmission_rpc("torrent-add", {"filename": req.url})
+    added = result.get("arguments", {}).get("torrent-added")
+    if added:
+        return {"status": "added", "name": added.get("name"), "id": added.get("id")}
+    dup = result.get("arguments", {}).get("torrent-duplicate")
+    if dup:
+        return {"status": "duplicate", "name": dup.get("name")}
+    raise HTTPException(status_code=400, detail="Failed to add torrent")
+
+
+@app.post("/api/media/downloads/{torrent_id}/action")
+async def media_torrent_action(torrent_id: int, req: TorrentActionRequest):
+    """Pause or resume a torrent."""
+    method = "torrent-stop" if req.action == "pause" else "torrent-start"
+    result = await _transmission_rpc(method, {"ids": [torrent_id]})
+    return {"status": "ok", "action": req.action, "torrent_id": torrent_id,
+            "result": result.get("result", "unknown")}
+
+
+@app.get("/api/media/tv")
+async def media_tv():
+    """Sonarr: series list + download queue + upcoming calendar."""
+    headers = {"X-Api-Key": config.SONARR_API_KEY}
+    result: dict = {"series": [], "queue": [], "calendar": []}
+
+    async with aiohttp.ClientSession() as s:
+        async with s.get(f"{config.SONARR_URL}/api/v3/series", headers=headers) as resp:
+            if resp.status == 200:
+                raw = await resp.json()
+                for show in raw:
+                    stats = show.get("statistics", {})
+                    result["series"].append({
+                        "id": show.get("id"),
+                        "title": show.get("title"),
+                        "year": show.get("year"),
+                        "status": show.get("status"),
+                        "monitored": show.get("monitored", False),
+                        "seasons": show.get("seasonCount", 0),
+                        "episodes_on_disk": stats.get("episodeFileCount", 0),
+                        "total_episodes": stats.get("totalEpisodeCount", 0),
+                        "size_on_disk": stats.get("sizeOnDisk", 0),
+                        "overview": (show.get("overview") or "")[:200],
+                    })
+
+        async with s.get(f"{config.SONARR_URL}/api/v3/queue", headers=headers) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                for r in data.get("records", [])[:20]:
+                    result["queue"].append({
+                        "title": r.get("title"),
+                        "series_title": r.get("series", {}).get("title"),
+                        "status": r.get("status"),
+                        "size": r.get("size"),
+                        "sizeleft": r.get("sizeleft"),
+                    })
+
+        from datetime import datetime, timedelta, timezone as tz
+        now = datetime.now(tz.utc)
+        start = now.strftime("%Y-%m-%d")
+        end = (now + timedelta(days=7)).strftime("%Y-%m-%d")
+        async with s.get(f"{config.SONARR_URL}/api/v3/calendar",
+                        headers=headers, params={"start": start, "end": end}) as resp:
+            if resp.status == 200:
+                episodes = await resp.json()
+                for ep in episodes[:20]:
+                    result["calendar"].append({
+                        "series_title": ep.get("series", {}).get("title"),
+                        "episode_title": ep.get("title"),
+                        "season": ep.get("seasonNumber"),
+                        "episode": ep.get("episodeNumber"),
+                        "air_date": ep.get("airDateUtc"),
+                        "has_file": ep.get("hasFile", False),
+                    })
+
+    return result
+
+
+@app.post("/api/media/tv")
+async def media_add_tv(req: AddSeriesRequest):
+    """Add a TV series to Sonarr."""
+    headers = {"X-Api-Key": config.SONARR_API_KEY, "Content-Type": "application/json"}
+    async with aiohttp.ClientSession() as s:
+        async with s.get(f"{config.SONARR_URL}/api/v3/series/lookup",
+                        headers=headers, params={"term": f"tvdb:{req.tvdb_id}"}) as resp:
+            if resp.status != 200:
+                raise HTTPException(status_code=resp.status, detail="Sonarr lookup failed")
+            results = await resp.json()
+            if not results:
+                raise HTTPException(status_code=404, detail="Show not found")
+            show = results[0]
+
+        show["qualityProfileId"] = req.quality_profile_id
+        show["rootFolderPath"] = req.root_folder_path
+        show["monitored"] = True
+        show["addOptions"] = {"searchForMissingEpisodes": True}
+
+        async with s.post(f"{config.SONARR_URL}/api/v3/series", headers=headers, json=show) as resp:
+            if resp.status in (200, 201):
+                result = await resp.json()
+                return {"status": "added", "title": result.get("title"), "id": result.get("id")}
+            text = await resp.text()
+            raise HTTPException(status_code=resp.status, detail=text[:300])
+
+
+@app.get("/api/media/movies")
+async def media_movies():
+    """Radarr: movie list + download queue."""
+    headers = {"X-Api-Key": config.RADARR_API_KEY}
+    result: dict = {"movies": [], "queue": []}
+
+    async with aiohttp.ClientSession() as s:
+        async with s.get(f"{config.RADARR_URL}/api/v3/movie", headers=headers) as resp:
+            if resp.status == 200:
+                raw = await resp.json()
+                for m in raw:
+                    result["movies"].append({
+                        "id": m.get("id"),
+                        "title": m.get("title"),
+                        "year": m.get("year"),
+                        "tmdb_id": m.get("tmdbId"),
+                        "status": m.get("status"),
+                        "monitored": m.get("monitored", False),
+                        "has_file": m.get("hasFile", False),
+                        "size_on_disk": m.get("sizeOnDisk", 0),
+                        "overview": (m.get("overview") or "")[:200],
+                        "runtime": m.get("runtime", 0),
+                    })
+
+        async with s.get(f"{config.RADARR_URL}/api/v3/queue", headers=headers) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                for r in data.get("records", [])[:20]:
+                    result["queue"].append({
+                        "title": r.get("title"),
+                        "movie_title": r.get("movie", {}).get("title"),
+                        "status": r.get("status"),
+                        "size": r.get("size"),
+                        "sizeleft": r.get("sizeleft"),
+                    })
+
+    return result
+
+
+@app.post("/api/media/movies")
+async def media_add_movie(req: AddMovieRequest):
+    """Add a movie to Radarr."""
+    headers = {"X-Api-Key": config.RADARR_API_KEY, "Content-Type": "application/json"}
+    async with aiohttp.ClientSession() as s:
+        async with s.get(f"{config.RADARR_URL}/api/v3/movie/lookup/tmdb",
+                        headers=headers, params={"tmdbId": req.tmdb_id}) as resp:
+            if resp.status != 200:
+                raise HTTPException(status_code=resp.status, detail="Radarr lookup failed")
+            movie = await resp.json()
+            if not movie:
+                raise HTTPException(status_code=404, detail="Movie not found")
+
+        movie["qualityProfileId"] = req.quality_profile_id
+        movie["rootFolderPath"] = req.root_folder_path
+        movie["monitored"] = True
+        movie["addOptions"] = {"searchForMovie": True}
+
+        async with s.post(f"{config.RADARR_URL}/api/v3/movie", headers=headers, json=movie) as resp:
+            if resp.status in (200, 201):
+                result = await resp.json()
+                return {"status": "added", "title": result.get("title"), "id": result.get("id")}
+            text = await resp.text()
+            raise HTTPException(status_code=resp.status, detail=text[:300])
+
+
+@app.get("/api/media/library")
+async def media_library():
+    """Jellyfin: latest items + active sessions + library list."""
+    headers = {"X-Emby-Token": config.JELLYFIN_API_KEY}
+    result: dict = {"latest": [], "sessions": [], "libraries": []}
+
+    async with aiohttp.ClientSession() as s:
+        # Libraries
+        async with s.get(f"{config.JELLYFIN_URL}/Library/VirtualFolders", headers=headers) as resp:
+            if resp.status == 200:
+                libs = await resp.json()
+                for lib in libs:
+                    result["libraries"].append({
+                        "name": lib.get("Name"),
+                        "type": lib.get("CollectionType", "unknown"),
+                        "item_id": lib.get("ItemId"),
+                    })
+
+        # User ID for latest items
+        user_id = None
+        async with s.get(f"{config.JELLYFIN_URL}/Users", headers=headers) as resp:
+            if resp.status == 200:
+                users = await resp.json()
+                if users:
+                    user_id = users[0].get("Id")
+
+        # Latest items
+        if user_id:
+            params = {"Limit": "20", "Fields": "Overview,RunTimeTicks,ProductionYear"}
+            async with s.get(f"{config.JELLYFIN_URL}/Users/{user_id}/Items/Latest",
+                            headers=headers, params=params) as resp:
+                if resp.status == 200:
+                    items = await resp.json()
+                    for it in items:
+                        ticks = it.get("RunTimeTicks")
+                        duration = ""
+                        if ticks:
+                            secs = ticks // 10_000_000
+                            h, rem = divmod(secs, 3600)
+                            m, _ = divmod(rem, 60)
+                            duration = f"{h}h{m:02d}m" if h else f"{m}m"
+                        result["latest"].append({
+                            "id": it.get("Id"),
+                            "name": it.get("Name"),
+                            "type": it.get("Type"),
+                            "year": it.get("ProductionYear"),
+                            "duration": duration,
+                            "series_name": it.get("SeriesName"),
+                            "season": it.get("ParentIndexNumber"),
+                            "episode": it.get("IndexNumber"),
+                        })
+
+        # Active sessions
+        async with s.get(f"{config.JELLYFIN_URL}/Sessions", headers=headers) as resp:
+            if resp.status == 200:
+                sessions = await resp.json()
+                for sess in sessions:
+                    now_playing = sess.get("NowPlayingItem")
+                    if now_playing:
+                        play_state = sess.get("PlayState", {})
+                        result["sessions"].append({
+                            "device": sess.get("DeviceName"),
+                            "client": sess.get("Client"),
+                            "user": sess.get("UserName"),
+                            "playing": now_playing.get("Name"),
+                            "type": now_playing.get("Type"),
+                            "paused": play_state.get("IsPaused", False),
+                        })
+
+    return result
+
+
+@app.get("/api/media/requests")
+async def media_requests():
+    """Jellyseerr: pending and recent requests."""
+    headers = {"X-Api-Key": config.JELLYSEERR_API_KEY}
+    result: dict = {"requests": [], "counts": {}}
+
+    async with aiohttp.ClientSession() as s:
+        async with s.get(f"{config.JELLYSEERR_URL}/api/v1/request/count", headers=headers) as resp:
+            if resp.status == 200:
+                result["counts"] = await resp.json()
+
+        async with s.get(f"{config.JELLYSEERR_URL}/api/v1/request",
+                        headers=headers, params={"take": "20", "skip": "0", "sort": "added"}) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                for r in data.get("results", []):
+                    media = r.get("media", {})
+                    result["requests"].append({
+                        "id": r.get("id"),
+                        "media_type": r.get("type"),
+                        "status": r.get("status"),
+                        "title": media.get("title") or media.get("name") or
+                                 r.get("media", {}).get("externalServiceSlug", "Unknown"),
+                        "requested_by": r.get("requestedBy", {}).get("displayName"),
+                        "created_at": r.get("createdAt"),
+                    })
+
+    return result
+
+
+@app.post("/api/media/requests")
+async def media_create_request(req: MediaRequestCreate):
+    """Submit a Jellyseerr media request."""
+    headers = {"X-Api-Key": config.JELLYSEERR_API_KEY, "Content-Type": "application/json"}
+    async with aiohttp.ClientSession() as s:
+        async with s.post(f"{config.JELLYSEERR_URL}/api/v1/request",
+                         headers=headers, json={"mediaId": req.media_id, "mediaType": req.media_type}) as resp:
+            if resp.status in (200, 201):
+                return await resp.json()
+            text = await resp.text()
+            raise HTTPException(status_code=resp.status, detail=text[:300])
 
 
 def main():

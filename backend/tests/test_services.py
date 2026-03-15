@@ -425,6 +425,88 @@ async def test_jellyfin():
         fail("tool: jellyfin_get_sessions", str(e))
 
 
+# ── Radarr ────────────────────────────────────────────────────
+
+async def test_radarr():
+    print("\n" + "=" * 60)
+    print("RADARR")
+    print(f"  URL: {config.RADARR_URL}")
+    print(f"  API Key: {'set' if config.RADARR_API_KEY else 'MISSING'}")
+    print("=" * 60)
+
+    if not config.RADARR_API_KEY:
+        skip("all", "RADARR_API_KEY not set")
+        return
+
+    headers = {"X-Api-Key": config.RADARR_API_KEY}
+
+    # Test 1: system status
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{config.RADARR_URL}/api/v3/system/status", headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    ok("system/status", f"version={data.get('version')}")
+                else:
+                    fail("system/status", f"HTTP {resp.status}")
+                    return
+    except Exception as e:
+        fail("system/status", str(e))
+        return
+
+    # Test 2: movie library
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{config.RADARR_URL}/api/v3/movie", headers=headers) as resp:
+                if resp.status == 200:
+                    movies = await resp.json()
+                    ok("movie library", f"{len(movies)} movies")
+                    for m in movies[:3]:
+                        print(f"    - {m.get('title')} ({m.get('year')})")
+                    if len(movies) > 3:
+                        print(f"    ... and {len(movies) - 3} more")
+                else:
+                    fail("movie library", f"HTTP {resp.status}")
+    except Exception as e:
+        fail("movie library", str(e))
+
+    # Test 3: queue
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{config.RADARR_URL}/api/v3/queue", headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    records = data.get("records", [])
+                    ok("queue", f"{len(records)} items")
+                else:
+                    fail("queue", f"HTTP {resp.status}")
+    except Exception as e:
+        fail("queue", str(e))
+
+    # Test 4: LangChain tool wrappers
+    try:
+        from tools.radarr import radarr_search
+        result = await radarr_search.ainvoke({"query": "Inception"})
+        data = json.loads(result)
+        if "results" in data:
+            ok("tool: radarr_search", f"{data['count']} results")
+        else:
+            fail("tool: radarr_search", str(data)[:200])
+    except Exception as e:
+        fail("tool: radarr_search", str(e))
+
+    try:
+        from tools.radarr import radarr_get_queue
+        result = await radarr_get_queue.ainvoke({})
+        data = json.loads(result)
+        if "queue" in data:
+            ok("tool: radarr_get_queue", f"{data['count']} items")
+        else:
+            fail("tool: radarr_get_queue", str(data)[:200])
+    except Exception as e:
+        fail("tool: radarr_get_queue", str(e))
+
+
 # ── Runner ────────────────────────────────────────────────────
 
 SERVICE_MAP = {
@@ -432,6 +514,7 @@ SERVICE_MAP = {
     "jellyseerr": test_jellyseerr,
     "prowlarr": test_prowlarr,
     "jellyfin": test_jellyfin,
+    "radarr": test_radarr,
 }
 
 

@@ -51,6 +51,10 @@ EXCLUDES=(
   --exclude 'node_modules'
   --exclude '.venv'
   --exclude '__pycache__'
+  --exclude '.next'
+  --exclude '.DS_Store'
+  --exclude '*.pyc'
+  --exclude '.pytest_cache'
   --exclude '.smbdelete*'
   --exclude '.deploy-trigger'
 )

@@ -399,6 +399,191 @@ export interface FloorplanConfig {
   devices: FloorplanDevice[];
 }
 
+// --- Media types ---
+
+export interface MediaOverviewSession {
+  device: string;
+  client: string;
+  user: string;
+  playing: string;
+  type: string;
+  series?: string;
+  season?: number;
+  episode?: number;
+  paused: boolean;
+}
+
+export interface MediaOverview {
+  sessions: { count: number; items: MediaOverviewSession[] };
+  downloads: { count: number; active: number; download_speed: number; upload_speed: number };
+  sonarr_queue: number;
+  radarr_queue: number;
+  requests_pending: number;
+}
+
+export interface Torrent {
+  id: number;
+  name: string;
+  status: string;
+  progress: number;
+  download_speed: number;
+  upload_speed: number;
+  eta: number;
+  size: number;
+  downloaded: number;
+  uploaded: number;
+  added: number;
+}
+
+export interface TorrentsResponse {
+  torrents: Torrent[];
+  count: number;
+}
+
+export interface SonarrSeries {
+  id: number;
+  title: string;
+  year: number;
+  status: string;
+  monitored: boolean;
+  seasons: number;
+  episodes_on_disk: number;
+  total_episodes: number;
+  size_on_disk: number;
+  overview: string;
+}
+
+export interface SonarrQueueItem {
+  title: string;
+  series_title: string;
+  status: string;
+  size: number;
+  sizeleft: number;
+}
+
+export interface SonarrCalendarItem {
+  series_title: string;
+  episode_title: string;
+  season: number;
+  episode: number;
+  air_date: string;
+  has_file: boolean;
+}
+
+export interface SonarrResponse {
+  series: SonarrSeries[];
+  queue: SonarrQueueItem[];
+  calendar: SonarrCalendarItem[];
+}
+
+export interface RadarrMovie {
+  id: number;
+  title: string;
+  year: number;
+  tmdb_id: number;
+  status: string;
+  monitored: boolean;
+  has_file: boolean;
+  size_on_disk: number;
+  overview: string;
+  runtime: number;
+}
+
+export interface RadarrQueueItem {
+  title: string;
+  movie_title: string;
+  status: string;
+  size: number;
+  sizeleft: number;
+}
+
+export interface RadarrResponse {
+  movies: RadarrMovie[];
+  queue: RadarrQueueItem[];
+}
+
+export interface JellyfinLatestItem {
+  id: string;
+  name: string;
+  type: string;
+  year: number;
+  duration: string;
+  series_name?: string;
+  season?: number;
+  episode?: number;
+}
+
+export interface JellyfinSession {
+  device: string;
+  client: string;
+  user: string;
+  playing: string;
+  type: string;
+  paused: boolean;
+}
+
+export interface JellyfinLibrary {
+  name: string;
+  type: string;
+  item_id: string;
+}
+
+export interface JellyfinLibraryResponse {
+  latest: JellyfinLatestItem[];
+  sessions: JellyfinSession[];
+  libraries: JellyfinLibrary[];
+}
+
+export interface JellyseerrRequest {
+  id: number;
+  media_type: string;
+  status: number;
+  title: string;
+  requested_by: string;
+  created_at: string;
+}
+
+export interface JellyseerrRequestsResponse {
+  requests: JellyseerrRequest[];
+  counts: { total?: number; pending?: number; approved?: number; available?: number };
+}
+
+export interface MediaSearchResultJellyseerr {
+  id: number;
+  title: string;
+  media_type: string;
+  year: string;
+  overview: string;
+  poster_path: string | null;
+  status: string;
+}
+
+export interface MediaSearchResultProwlarr {
+  title: string;
+  indexer: string;
+  size_mb: number;
+  seeders: number;
+  leechers: number;
+  download_url: string;
+  categories: string[];
+}
+
+export interface MediaSearchResultJellyfin {
+  id: string;
+  name: string;
+  type: string;
+  year: number;
+  duration: string;
+  genres: string[];
+  overview: string;
+}
+
+export interface MediaSearchResponse {
+  jellyseerr: MediaSearchResultJellyseerr[];
+  prowlarr: MediaSearchResultProwlarr[];
+  jellyfin: MediaSearchResultJellyfin[];
+}
+
 // --- Health data types ---
 
 export interface HealthSensorReading {

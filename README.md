@@ -2,7 +2,7 @@
 
 Intelligent smart-home assistant powered by LangChain + Gemini, with live Home Assistant awareness, learnable skills, proactive automations, and a modern dashboard UI.
 
-![Dashboard with AI Editor](docs/screenshots/dashboard-ai-editor.png)
+![Dashboard](docs/screenshots/dashboard.png)
 
 ## Features
 
@@ -20,19 +20,17 @@ Control any Home Assistant device through conversational commands. Set light col
 
 Get TV/movie recommendations and manage your media stack through chat. The agent searches Sonarr, Prowlarr, Jellyseerr, and Transmission, finds the right content, and kicks off downloads -- all in a single conversation.
 
-![Media Management](docs/screenshots/chat-media-management.png)
+![Media Management](docs/screenshots/chat-media.png)
 
 ### Sensor Data Analysis
 
 Ask about your home environment and get formatted sensor summaries with AI-powered analysis. The agent reads live HA sensor data and presents it as structured tables with contextual insights on air quality, temperature, humidity, and power consumption.
 
-![Sensor Summary](docs/screenshots/chat-sensor-summary.png)
-
 ### Live Camera Snapshots
 
-Ask the agent to show you any Home Assistant camera and it grabs a live snapshot on demand, rendered directly in the chat. Monitor 3D prints, check security cameras, or peek at any connected feed -- all through natural language.
+Dedicated cameras page with live snapshots from all Home Assistant camera entities. Auto-refresh on a 15-second interval, manual snapshot on demand, and streaming status indicators. Ask the agent in chat to show any camera and it renders the snapshot inline.
 
-![Camera Snapshot](docs/screenshots/chat-camera-snapshot.png)
+![Cameras](docs/screenshots/cameras.png)
 
 ### Scenes -- State Snapshot and Restore
 
@@ -42,19 +40,19 @@ Snapshot the current state of any set of devices (lights, fans, climate) and res
 
 A dedicated floorplan page with an inlined SVG floor plan showing live device states as colored overlays. Lights glow when on, sensors display readings, and devices are clickable for direct toggle control. Configured via a device-to-SVG mapping stored in the database.
 
-### 39 Integrated Tools
+![Home Map](docs/screenshots/home-map.png)
 
-Home Assistant control, Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n workflows, learnable skills, scene management, and three-layer memory (episodic, semantic, procedural) -- all accessible via natural language.
+### 42 Integrated Tools
 
-![Tools](docs/screenshots/tools-page.png)
+Home Assistant control, Sonarr, Radarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n workflows, learnable skills, scene management, and three-layer memory (episodic, semantic, procedural) -- all accessible via natural language.
+
+![Tools](docs/screenshots/tools.png)
 
 ### Smart Home Awareness
 
-WebSocket subscription mirrors 290+ HA entities in memory. Context-aware state summaries are injected into every LLM call -- mentioning "printer" automatically includes 3D printer telemetry, asking about "batteries" surfaces all device levels, and recent state changes are always visible. The agent detects anomalies (low battery, high power draw, open doors) and flags them proactively.
+WebSocket subscription mirrors 307 HA entities in memory. Context-aware state summaries are injected into every LLM call -- mentioning "printer" automatically includes 3D printer telemetry, asking about "batteries" surfaces all device levels, and recent state changes are always visible. The agent detects anomalies (low battery, high power draw, open doors) and flags them proactively.
 
-![Smart Home Awareness](docs/chats/chat-smart-home-awareness.png)
-
-![Devices](docs/screenshots/devices-page.png)
+![Devices](docs/screenshots/devices.png)
 
 ### Presence Tracking
 
@@ -72,13 +70,49 @@ Scheduled daily and weekly AI-generated summaries sent via Telegram. The daily d
 
 Track power consumption, energy usage, and battery levels across all your devices. Live power gauges show real-time wattage with color-coded thresholds, area charts visualize consumption over configurable time ranges (6h to 7d), and battery cards surface low devices at a glance. Data comes from HA power/energy/battery sensors and the event log history.
 
-![Energy Dashboard](docs/screenshots/energy-page.png)
+![Energy Dashboard](docs/screenshots/energy.png)
+
+### Network Monitoring
+
+TP-Link Deco mesh status with live bandwidth per node, connected device inventory grouped by access point, and bandwidth-over-time charts. Filter by active/offline devices, see per-client throughput, and track internet connectivity.
+
+![Network](docs/screenshots/network.png)
+
+### Media Dashboard
+
+Unified media management page -- now playing from Jellyfin, active downloads from Transmission, TV and movie queues from Sonarr/Radarr, library browsing, and Jellyseerr request status. Search across all services from a single search bar.
+
+![Media](docs/screenshots/media.png)
+
+### Health Tracking
+
+Personal health dashboard pulling data from wearables via Home Assistant. Heart rate monitoring with history charts, daily activity rings (steps, calories, distance, floors), sleep tracking with quality indicators, and device battery levels. Data sourced from Galaxy Watch and Pixel sensors.
+
+![Health](docs/screenshots/health.png)
+
+### Analytics
+
+Historical trends and patterns across your smart home. Activity frequency, energy consumption over time, presence tracking, and network usage -- all with configurable time ranges (7d, 14d, 30d) and metric selectors.
+
+![Analytics](docs/screenshots/analytics.png)
 
 ### Learnable Skills
 
 Teach the agent reusable routines via chat ("When I say goodnight, turn off all lights and set the fan to auto"). Skills are stored as procedural memory and can be triggered by name, cron schedules, or HA state changes.
 
-![Skills](docs/screenshots/skills-page.png)
+![Skills](docs/screenshots/skills.png)
+
+### Activity Log
+
+Real-time event stream of all HA state changes with domain filtering (camera, device_tracker, sensor, switch) and configurable time windows (6h to 72h). Every entity change is logged with old/new values.
+
+![Activity](docs/screenshots/activity.png)
+
+### Settings
+
+Configure notification rules (3D printer done, battery low, welcome/left home, Deco node offline, device disconnect) with per-rule toggles and cooldowns. Manage device aliases for network clients and configure presence tracking devices.
+
+![Settings](docs/screenshots/settings.png)
 
 ## Architecture
 
@@ -101,14 +135,13 @@ homebot/
   dashboard/        Next.js dashboard UI
   docs/
     screenshots/    Dashboard and page screenshots
-    chats/          Chat conversation examples
   README.md         This file
   ARCHITECTURE.md   System architecture docs
 ```
 
 ## Backend
 
-LangChain/LangGraph ReAct agent with three-layer memory and 39 tools spanning Home Assistant, media services (Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin), n8n workflows, scene management, and skill management.
+LangChain/LangGraph ReAct agent with three-layer memory and 42 tools spanning Home Assistant, media services (Sonarr, Radarr, Transmission, Jellyseerr, Prowlarr, Jellyfin), n8n workflows, scene management, and skill management.
 
 Entry points:
 - `main.py` -- Telegram bot (production)
@@ -121,7 +154,7 @@ Next.js 15 frontend with dark cyber-yellow theme, Geist Sans/Mono fonts, Tailwin
 
 Fully mobile-responsive with slide-out drawer navigation on phones/tablets.
 
-Pages: Dashboard (AI-customizable widget grid), Chat (AI conversation with SSE streaming and tool visibility), Devices (290 HA entities with domain filters), Cameras (live snapshots), Activity (event log), Energy (power/energy charts, battery levels), Network (Deco mesh nodes, connected clients, live bandwidth), Skills & Scenes (learned routines + state snapshots), Memory (semantic facts), Tools (39 registered tools reference), Analytics (historical trends), Health (system health metrics), Settings (notification rules, device aliases), Home Map (interactive SVG floorplan with live device overlays).
+Pages: Dashboard (AI-customizable widget grid), Chat (AI conversation with SSE streaming and tool visibility), Devices (307 HA entities with domain filters), Cameras (live snapshots), Activity (event log), Energy (power/energy charts, battery levels), Network (Deco mesh nodes, connected clients, live bandwidth), Skills & Scenes (learned routines + state snapshots), Memory (semantic facts), Tools (42 registered tools reference), Media (unified media management), Analytics (historical trends), Health (wearable health metrics), Settings (notification rules, device aliases, presence tracking), Home Map (interactive SVG floorplan with live device overlays).
 
 ## Quick Start
 

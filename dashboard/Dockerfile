@@ -22,7 +22,9 @@ CMD ["npm", "run", "dev"]
 # Production build
 FROM base AS builder
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_API_KEY
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_KEY=$NEXT_PUBLIC_API_KEY
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
