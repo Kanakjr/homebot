@@ -119,6 +119,8 @@ async def get_db() -> aiosqlite.Connection:
         Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
         _db = await aiosqlite.connect(config.DB_PATH)
         _db.row_factory = aiosqlite.Row
+        await _db.execute("PRAGMA journal_mode=WAL")
+        await _db.execute("PRAGMA busy_timeout=5000")
         await _db.executescript(SCHEMA)
         await _seed_presets()
         await _db.commit()

@@ -46,6 +46,7 @@ export interface SkillDetail {
   actions: unknown[];
   notify: boolean;
   active: boolean;
+  model: string | null;
 }
 
 export interface SkillCreate {
@@ -57,6 +58,7 @@ export interface SkillCreate {
   ai_prompt?: string;
   actions?: unknown[];
   notify?: boolean;
+  model?: string | null;
 }
 
 export interface SkillUpdate {
@@ -67,6 +69,13 @@ export interface SkillUpdate {
   ai_prompt?: string;
   actions?: unknown[];
   notify?: boolean;
+  model?: string | null;
+}
+
+export interface ModelInfo {
+  id: string;
+  provider: string;
+  name: string;
 }
 
 export interface SkillExecuteResponse {
@@ -625,6 +634,26 @@ export interface MediaSearchResponse {
   jellyfin: MediaSearchResultJellyfin[];
 }
 
+export interface DiscoverItem {
+  title: string;
+  description: string;
+  score: number;
+  quality: string;
+  seeders: number;
+  peers: number;
+  size_mb: number;
+  download_url: string;
+  indexer: string;
+  raw_title: string;
+}
+
+export interface DiscoverResponse {
+  categories: Record<string, DiscoverItem[]>;
+  total_indexed: number;
+  last_updated: string;
+  provider: string;
+}
+
 // --- Server / Tunnel types ---
 
 export interface ServerContainer {
@@ -720,6 +749,13 @@ export interface TranscoderJob {
   created_at: string;
   library_name: string | null;
   preset_name: string | null;
+}
+
+export interface TranscoderJobProgress {
+  percent: number;
+  fps: number;
+  avg_fps: number;
+  eta: string;
 }
 
 export interface TranscoderStats {

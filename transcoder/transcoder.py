@@ -15,6 +15,7 @@ from scanner import get_video_info
 log = logging.getLogger("transcoder.transcoder")
 
 _active_processes: dict[int, asyncio.subprocess.Process] = {}
+_progress: dict[int, dict] = {}
 
 
 def get_quality_for_height(quality_rules: dict, height: int | None) -> int:
@@ -72,7 +73,7 @@ def verify_output(
 async def transcode_file(job_id: int) -> bool:
     """Run a single transcode job. Returns True on success."""
     job = await db.get_job(job_id)
-    if not job or job["status"] != "pending":
+    if not job or job["status"] not in ("pending", "running"):
         return False
 
     preset = await db.get_preset(job["preset_id"])
@@ -114,7 +115,9 @@ async def transcode_file(job_id: int) -> bool:
 
         progress_re = re.compile(
             r"Encoding: task \d+ of \d+, (\d+\.\d+) %"
+            r"(?: \((\d+\.\d+) fps, avg (\d+\.\d+) fps, ETA (\d+h\d+m\d+s)\))?"
         )
+        _progress[job_id] = {"percent": 0.0, "fps": 0.0, "avg_fps": 0.0, "eta": ""}
         while True:
             chunk = await process.stdout.read(8192)
             if not chunk:
@@ -122,10 +125,17 @@ async def transcode_file(job_id: int) -> bool:
             text = chunk.decode("utf-8", errors="replace")
             match = progress_re.search(text)
             if match:
-                log.debug("Job %d: %.1f%%", job_id, float(match.group(1)))
+                pct = float(match.group(1))
+                _progress[job_id] = {
+                    "percent": pct,
+                    "fps": float(match.group(2) or 0),
+                    "avg_fps": float(match.group(3) or 0),
+                    "eta": match.group(4) or "",
+                }
 
         return_code = await process.wait()
         _active_processes.pop(job_id, None)
+        _progress.pop(job_id, None)
 
         if return_code != 0:
             raise RuntimeError(f"HandBrakeCLI exited with code {return_code}")
@@ -164,6 +174,7 @@ async def transcode_file(job_id: int) -> bool:
 
     except asyncio.CancelledError:
         _active_processes.pop(job_id, None)
+        _progress.pop(job_id, None)
         if os.path.exists(temp_path):
             os.remove(temp_path)
         await db.update_job(job_id, {
@@ -174,6 +185,7 @@ async def transcode_file(job_id: int) -> bool:
 
     except Exception as e:
         _active_processes.pop(job_id, None)
+        _progress.pop(job_id, None)
         log.exception("Job %d failed: %s", job_id, e)
         if os.path.exists(temp_path):
             os.remove(temp_path)
@@ -183,6 +195,11 @@ async def transcode_file(job_id: int) -> bool:
             "error_message": str(e),
         })
         return False
+
+
+def get_progress() -> dict[int, dict]:
+    """Return a snapshot of progress for all actively transcoding jobs."""
+    return dict(_progress)
 
 
 async def cancel_job(job_id: int) -> bool:

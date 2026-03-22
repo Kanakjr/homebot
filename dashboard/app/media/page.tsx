@@ -9,6 +9,7 @@ import {
   getMediaMovies,
   getMediaLibrary,
   getMediaRequests,
+  getMediaDiscover,
   mediaSearch,
   addMediaDownload,
   mediaDownloadAction,
@@ -26,11 +27,14 @@ import type {
   MediaSearchResultJellyseerr,
   MediaSearchResultProwlarr,
   MediaSearchResultJellyfin,
+  DiscoverResponse,
+  DiscoverItem,
 } from "@/lib/types";
 
-type TabId = "downloads" | "tv" | "movies" | "library" | "requests";
+type TabId = "discover" | "downloads" | "tv" | "movies" | "library" | "requests";
 
 const TABS: { id: TabId; label: string }[] = [
+  { id: "discover", label: "Discover" },
   { id: "downloads", label: "Downloads" },
   { id: "tv", label: "TV Shows" },
   { id: "movies", label: "Movies" },
@@ -799,6 +803,186 @@ function RequestsTab({ data }: { data: JellyseerrRequestsResponse | null }) {
   );
 }
 
+// ── Discover Tab ─────────────────────────────────────────────
+
+const SCORE_STARS = ["", "\u2605", "\u2605\u2605", "\u2605\u2605\u2605", "\u2605\u2605\u2605\u2605", "\u2605\u2605\u2605\u2605\u2605"];
+
+function DiscoverTab({
+  data,
+  loading,
+  onRefresh,
+  onAddTorrent,
+}: {
+  data: DiscoverResponse | null;
+  loading: boolean;
+  onRefresh: () => void;
+  onAddTorrent: (url: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  if (loading && !data) {
+    return (
+      <div className="space-y-4">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="h-20 rounded-xl border border-white/10 bg-white/[0.02] animate-pulse" />
+        ))}
+        <p className="text-center text-xs text-neutral-500 font-mono">
+          Fetching trending content and running AI analysis...
+        </p>
+      </div>
+    );
+  }
+
+  if (!data || Object.keys(data.categories).length === 0) {
+    return (
+      <div className="py-10 text-center space-y-3">
+        <p className="text-sm text-neutral-500">No discoveries yet.</p>
+        <button
+          onClick={onRefresh}
+          className="rounded-lg bg-cyber-yellow/10 px-4 py-2 text-xs font-mono text-cyber-yellow hover:bg-cyber-yellow/20 transition-colors"
+        >
+          Run Discovery
+        </button>
+      </div>
+    );
+  }
+
+  const categoryOrder = ["Movie", "TV Show", "Anime", "Documentary", "Other", "Uncategorized"];
+  const sortedCategories = Object.entries(data.categories).sort(
+    ([a], [b]) => {
+      const ai = categoryOrder.indexOf(a);
+      const bi = categoryOrder.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    },
+  );
+
+  const lastUpdated = data.last_updated
+    ? new Date(data.last_updated)
+    : null;
+  const agoText = lastUpdated
+    ? (() => {
+        const mins = Math.floor((Date.now() - lastUpdated.getTime()) / 60000);
+        if (mins < 1) return "just now";
+        if (mins < 60) return `${mins}m ago`;
+        const hrs = Math.floor(mins / 60);
+        return `${hrs}h ago`;
+      })()
+    : "";
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-mono text-neutral-500">
+            {data.total_indexed} releases indexed
+          </span>
+          {data.provider && data.provider !== "none" && (
+            <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-mono text-neutral-500">
+              via {data.provider}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {agoText && (
+            <span className="text-[11px] font-mono text-neutral-600">
+              Updated {agoText}
+            </span>
+          )}
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-[11px] font-mono transition-colors",
+              loading
+                ? "bg-white/5 text-neutral-600 cursor-not-allowed"
+                : "bg-cyber-yellow/10 text-cyber-yellow hover:bg-cyber-yellow/20",
+            )}
+          >
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {sortedCategories.map(([category, items]) => {
+        const isCollapsed = collapsed[category];
+        return (
+          <div key={category}>
+            <button
+              onClick={() =>
+                setCollapsed((prev) => ({ ...prev, [category]: !prev[category] }))
+              }
+              className="mb-2 flex w-full items-center gap-2 text-left"
+            >
+              <span
+                className={cn(
+                  "text-xs transition-transform",
+                  isCollapsed ? "" : "rotate-90",
+                )}
+              >
+                {"\u25B6"}
+              </span>
+              <span className="text-xs font-mono text-neutral-400 uppercase tracking-wider">
+                {category}
+              </span>
+              <span className="text-[10px] font-mono text-neutral-600">
+                ({items.length})
+              </span>
+            </button>
+            {!isCollapsed && (
+              <div className="space-y-2">
+                {items.map((item: DiscoverItem, idx: number) => (
+                  <div
+                    key={`${item.title}-${idx}`}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-white/15 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-white">
+                            {item.title}
+                          </span>
+                          <span className="text-[11px] text-amber-400/80">
+                            {SCORE_STARS[item.score] || ""}
+                          </span>
+                          {item.quality && (
+                            <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono text-blue-400">
+                              {item.quality}
+                            </span>
+                          )}
+                        </div>
+                        {item.description && (
+                          <p className="mt-1 text-xs text-neutral-400 line-clamp-2">
+                            {item.description}
+                          </p>
+                        )}
+                        <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] font-mono text-neutral-500">
+                          <span className="text-green-400/80">
+                            {item.seeders} seeds
+                          </span>
+                          <span>{formatBytes(item.size_mb * 1024 * 1024)}</span>
+                          <span>{item.indexer}</span>
+                        </div>
+                      </div>
+                      {item.download_url && (
+                        <button
+                          onClick={() => onAddTorrent(item.download_url)}
+                          className="rounded-lg bg-cyber-yellow/10 px-2.5 py-1.5 text-[11px] font-mono text-cyber-yellow hover:bg-cyber-yellow/20 transition-colors shrink-0"
+                        >
+                          Download
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────
 
 export default function MediaPage() {
@@ -808,9 +992,11 @@ export default function MediaPage() {
   const [movieData, setMovieData] = useState<RadarrResponse | null>(null);
   const [libraryData, setLibraryData] = useState<JellyfinLibraryResponse | null>(null);
   const [requestsData, setRequestsData] = useState<JellyseerrRequestsResponse | null>(null);
+  const [discoverData, setDiscoverData] = useState<DiscoverResponse | null>(null);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<MediaSearchResponse | null>(null);
 
-  const [activeTab, setActiveTab] = useState<TabId>("downloads");
+  const [activeTab, setActiveTab] = useState<TabId>("discover");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -824,9 +1010,19 @@ export default function MediaPage() {
     }
   }, []);
 
-  const fetchTabData = useCallback(async (tab: TabId) => {
+  const fetchTabData = useCallback(async (tab: TabId, refresh = false) => {
     try {
       switch (tab) {
+        case "discover": {
+          setDiscoverLoading(true);
+          try {
+            const data = await getMediaDiscover(refresh);
+            setDiscoverData(data);
+          } finally {
+            setDiscoverLoading(false);
+          }
+          break;
+        }
         case "downloads": {
           const data = await getMediaDownloads();
           setTorrents(data.torrents);
@@ -973,6 +1169,14 @@ export default function MediaPage() {
             ))}
           </div>
 
+          {activeTab === "discover" && (
+            <DiscoverTab
+              data={discoverData}
+              loading={discoverLoading}
+              onRefresh={() => fetchTabData("discover", true)}
+              onAddTorrent={handleAddTorrent}
+            />
+          )}
           {activeTab === "downloads" && <DownloadsTab torrents={torrents} onAction={handleTorrentAction} />}
           {activeTab === "tv" && <TVTab data={tvData} />}
           {activeTab === "movies" && <MoviesTab data={movieData} />}

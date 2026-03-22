@@ -40,6 +40,9 @@ next-env.d.ts
 *.db-journal
 backend/data/
 
+# LLM benchmark results (machine-specific)
+tests/llm/results/*.json
+
 # Logs
 *.log
 npm-debug.log*
@@ -52,3 +55,4 @@ Thumbs.db
 docker-compose.override.yml
 .cursor/
 .smbdelete*
+transcoder/data/

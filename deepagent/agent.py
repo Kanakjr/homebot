@@ -74,9 +74,6 @@ return an empty response after tool calls.
 5. Use friendly names and natural descriptions.
 """
 
-_checkpointer = MemorySaver()
-
-
 def _load_skills_files() -> dict:
     """Load SKILL.md files from the skills directory into virtual filesystem format."""
     from pathlib import Path
@@ -92,19 +89,24 @@ def _load_skills_files() -> dict:
     return files
 
 
-def build_agent():
-    """Build and return the deep agent graph."""
-    log.info("Building deep agent with model=%s", config.MODEL)
+def build_agent(model: str | None = None):
+    """Build and return the deep agent graph.
+
+    *model* overrides ``config.MODEL`` when provided. Accepts the
+    ``provider:model`` format, e.g. ``ollama:qwen3.5:9b``.
+    """
+    effective_model = model or config.MODEL
+    log.info("Building deep agent with model=%s", effective_model)
 
     all_tools = get_all_tools()
     skills_files = _load_skills_files()
 
     agent = create_deep_agent(
-        model=config.MODEL,
+        model=effective_model,
         tools=all_tools,
         system_prompt=SYSTEM_PROMPT,
         skills=["/skills/"],
-        checkpointer=_checkpointer,
+        checkpointer=MemorySaver(),
         backend=LocalShellBackend(root_dir=str(config.DATA_DIR)),
     )
 

@@ -52,14 +52,11 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 OLLAMA_ENABLED = os.environ.get("OLLAMA_ENABLED", "false").lower() in ("true", "1", "yes")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "sorc/qwen3.5-claude-4.6-opus-q4:2b")
 
 HA_URL = os.environ.get("HA_URL", "http://localhost:8123")
 HA_TOKEN = os.environ.get("HA_TOKEN", "")
 HA_WS_URL = HA_URL.replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"
-
-N8N_URL = os.environ.get("N8N_URL", "http://localhost:5678")
-N8N_API_KEY = os.environ.get("N8N_API_KEY", "")
 
 SONARR_URL = os.environ.get("SONARR_URL", "http://localhost:8989")
 SONARR_API_KEY = os.environ.get("SONARR_API_KEY", "")

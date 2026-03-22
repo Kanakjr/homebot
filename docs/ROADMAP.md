@@ -10,7 +10,7 @@ Before diving into what's next, here's what exists today:
 
 - **AI Agent**: LangChain/LangGraph ReAct agent with Gemini 2.5 Flash, 39 tools, three-layer memory (episodic, semantic, procedural)
 - **Home Assistant**: WebSocket mirror of 290 entities, real-time state cache, context-aware summaries, anomaly detection
-- **Integrations**: Sonarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n
+- **Integrations**: Sonarr, Radarr, Transmission, Jellyseerr, Prowlarr, Jellyfin
 - **Skills**: Manual, scheduled (cron), and state-change triggered routines in static or AI mode
 - **Scenes**: Snapshot and restore device states (lights, fans, climate) with attribute preservation
 - **Notifications**: Proactive Telegram alerts with configurable rules (printer done, battery low, welcome/left home, Deco node offline, network device disconnect)

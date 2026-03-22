@@ -9,7 +9,7 @@ load_dotenv()
 
 # --- LLM ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-MODEL = os.getenv("MODEL", "google_genai:gemini-3-flash-preview")
+MODEL = os.getenv("MODEL", "ollama:sorc/qwen3.5-claude-4.6-opus-q4:2b")
 
 # --- Home Assistant ---
 HA_URL = os.getenv("HA_URL", "http://localhost:8123")

@@ -34,6 +34,7 @@ import type {
   JellyfinLibraryResponse,
   JellyseerrRequestsResponse,
   MediaSearchResponse,
+  DiscoverResponse,
   ServerContainersResponse,
   TunnelRoutesResponse,
   BackupStatus,
@@ -41,6 +42,7 @@ import type {
   TranscoderLibrary,
   TranscoderPreset,
   TranscoderJob,
+  TranscoderJobProgress,
   TranscoderStats,
   TranscoderScan,
   TranscoderHealth,
@@ -131,8 +133,16 @@ export async function* streamChatEvents(
 /**
  * POST-based SSE stream to the Deep Agent service. Same event format as standard backend.
  */
+export async function getDeepAgentModels(): Promise<{ models: import("./types").ModelInfo[] }> {
+  const res = await fetch(`${DEEP_AGENT_URL}/api/models`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Deep Agent models API ${res.status}`);
+  return res.json();
+}
+
 export async function* streamDeepAgentEvents(
-  req: { message: string; thread_id?: string },
+  req: { message: string; thread_id?: string; model?: string },
   signal?: AbortSignal
 ): AsyncGenerator<{ type: string; data: string }> {
   const res = await fetch(`${DEEP_AGENT_URL}/api/chat/stream`, {
@@ -181,6 +191,10 @@ export function getSnapshotUrl(filename: string): string {
 
 export async function getHealth(): Promise<HealthResponse> {
   return fetchJSON<HealthResponse>("/api/health");
+}
+
+export async function getModels(): Promise<{ models: import("./types").ModelInfo[] }> {
+  return fetchJSON<{ models: import("./types").ModelInfo[] }>("/api/models");
 }
 
 export async function getTools(): Promise<ToolInfo[]> {
@@ -484,6 +498,11 @@ export async function createMediaRequest(
   });
 }
 
+export async function getMediaDiscover(refresh = false): Promise<DiscoverResponse> {
+  const params = refresh ? "?refresh=true" : "";
+  return fetchJSON<DiscoverResponse>(`/api/media/discover${params}`);
+}
+
 // --- Server / Tunnel ---
 
 export async function getServerContainers(): Promise<ServerContainersResponse> {
@@ -612,6 +631,10 @@ export async function startTranscoderJobs(library_id: number, preset_id?: number
 
 export async function cancelTranscoderJob(id: number): Promise<{ message: string }> {
   return fetchTranscoder<{ message: string }>(`/api/jobs/${id}/cancel`, { method: "POST" });
+}
+
+export async function getTranscoderProgress(): Promise<Record<string, TranscoderJobProgress>> {
+  return fetchTranscoder<Record<string, TranscoderJobProgress>>("/api/jobs/progress");
 }
 
 export async function getTranscoderScans(): Promise<TranscoderScan[]> {

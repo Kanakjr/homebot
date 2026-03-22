@@ -17,6 +17,7 @@ import {
   getTranscoderScans,
   browseTranscoderLibrary,
   startPathTranscode,
+  getTranscoderProgress,
 } from "@/lib/api";
 import type {
   TranscoderHealth,
@@ -24,6 +25,7 @@ import type {
   TranscoderLibrary,
   TranscoderPreset,
   TranscoderJob,
+  TranscoderJobProgress,
   TranscoderScan,
   TranscoderBrowseEntry,
 } from "@/lib/types";
@@ -70,7 +72,10 @@ function StatusBadge({ status }: { status: string }) {
 // Overview Tab
 // ---------------------------------------------------------------------------
 
-function OverviewTab({ stats, health, jobs }: { stats: TranscoderStats | null; health: TranscoderHealth | null; jobs: TranscoderJob[] }) {
+function OverviewTab({ stats, health, jobs, progress }: { stats: TranscoderStats | null; health: TranscoderHealth | null; jobs: TranscoderJob[]; progress: Record<string, TranscoderJobProgress> }) {
+  const recentJobs = jobs.filter((j) => j.status === "running" || j.status === "completed" || j.status === "failed");
+  const runningJobs = jobs.filter((j) => j.status === "running");
+
   const cards = [
     { label: "Files Processed", value: stats?.files_processed ?? 0 },
     { label: "Space Saved", value: stats ? formatBytes(stats.space_saved_bytes) : "--" },
@@ -89,6 +94,42 @@ function OverviewTab({ stats, health, jobs }: { stats: TranscoderStats | null; h
         ))}
       </div>
 
+      {runningJobs.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <h3 className="text-sm font-medium text-zinc-400 mb-3">Active Transcodes</h3>
+          <div className="space-y-3">
+            {runningJobs.map((job) => {
+              const p = progress[String(job.id)];
+              const pct = p?.percent ?? 0;
+              return (
+                <div key={job.id} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-zinc-300 truncate max-w-[60%]">{job.file_path.split("/").pop()}</span>
+                    <div className="flex items-center gap-3 text-xs text-zinc-500">
+                      {p?.eta && <span>ETA {p.eta}</span>}
+                      {p && p.avg_fps > 0 && <span>{p.avg_fps.toFixed(1)} fps</span>}
+                      <span className="text-zinc-300 font-medium">{pct.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 rounded-full transition-all duration-1000"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-zinc-600">
+                    <span>{job.library_name}</span>
+                    <span>--</span>
+                    <span>{job.preset_name}</span>
+                    {job.original_size_bytes && <span>-- {formatBytes(job.original_size_bytes)}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {stats?.job_counts && Object.keys(stats.job_counts).length > 0 && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
           <h3 className="text-sm font-medium text-zinc-400 mb-3">Jobs by Status</h3>
@@ -104,12 +145,12 @@ function OverviewTab({ stats, health, jobs }: { stats: TranscoderStats | null; h
       )}
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-        <h3 className="text-sm font-medium text-zinc-400 mb-3">Recent Jobs</h3>
-        {jobs.length === 0 ? (
-          <p className="text-sm text-zinc-500">No jobs yet</p>
+        <h3 className="text-sm font-medium text-zinc-400 mb-3">Recent Activity</h3>
+        {recentJobs.length === 0 ? (
+          <p className="text-sm text-zinc-500">No transcoding activity yet</p>
         ) : (
           <div className="space-y-2">
-            {jobs.slice(0, 10).map((job) => (
+            {recentJobs.filter((j) => j.status !== "running").slice(0, 10).map((job) => (
               <div key={job.id} className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800 last:border-0">
                 <div className="flex-1 min-w-0">
                   <span className="text-zinc-300 truncate block">{job.file_path.split("/").pop()}</span>
@@ -212,13 +253,13 @@ function LibraryBrowser({ libraryId }: { libraryId: number }) {
         <div className="text-xs text-red-400 bg-red-500/10 rounded px-2 py-1">{error}</div>
       )}
 
-      {pendingCount > 0 && path && (
+      {pendingCount > 0 && (
         <button
           onClick={() => handleTranscodePath(path)}
           disabled={busyPath === path}
           className="text-xs px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-lg disabled:opacity-50 transition"
         >
-          {busyPath === path ? "Starting..." : `Transcode folder (${pendingCount} pending)`}
+          {busyPath === path ? "Starting..." : `Transcode ${path ? "folder" : "all"} (${pendingCount} pending)`}
         </button>
       )}
 
@@ -497,14 +538,38 @@ function LibrariesTab({
 // Jobs Tab
 // ---------------------------------------------------------------------------
 
-function JobsTab({ jobs, onRefresh }: { jobs: TranscoderJob[]; onRefresh: () => void }) {
-  const [filter, setFilter] = useState("");
+function JobsTab({ onRefresh, progress }: { onRefresh: () => void; progress: Record<string, TranscoderJobProgress> }) {
+  const [filter, setFilter] = useState("active");
+  const [jobs, setJobs] = useState<TranscoderJob[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = filter ? jobs.filter((j) => j.status === filter) : jobs;
+  const loadJobs = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (filter === "active") {
+        const [running, completed, failed, pending] = await Promise.all([
+          getTranscoderJobs({ status: "running", limit: 50 }),
+          getTranscoderJobs({ status: "completed", limit: 50 }),
+          getTranscoderJobs({ status: "failed", limit: 50 }),
+          getTranscoderJobs({ status: "pending", limit: 50 }),
+        ]);
+        setJobs([...running, ...completed, ...failed, ...pending]);
+      } else {
+        setJobs(await getTranscoderJobs({ status: filter, limit: 100 }));
+      }
+    } catch {
+      setJobs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+
+  useEffect(() => { loadJobs(); }, [loadJobs]);
 
   const handleCancel = async (id: number) => {
     try {
       await cancelTranscoderJob(id);
+      loadJobs();
       onRefresh();
     } catch { /* ignore */ }
   };
@@ -513,23 +578,34 @@ function JobsTab({ jobs, onRefresh }: { jobs: TranscoderJob[]; onRefresh: () => 
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <span className="text-xs text-zinc-500">Filter:</span>
-        {["", "pending", "running", "completed", "failed", "skipped", "cancelled"].map((s) => (
+        {[
+          { key: "active", label: "Active" },
+          { key: "running", label: "Running" },
+          { key: "completed", label: "Completed" },
+          { key: "failed", label: "Failed" },
+          { key: "pending", label: "Pending" },
+          { key: "skipped", label: "Skipped" },
+        ].map((f) => (
           <button
-            key={s}
-            onClick={() => setFilter(s)}
+            key={f.key}
+            onClick={() => setFilter(f.key)}
             className={cn(
               "px-2 py-0.5 text-xs rounded-full border transition",
-              filter === s
+              filter === f.key
                 ? "bg-blue-600/20 text-blue-400 border-blue-500/30"
                 : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600",
             )}
           >
-            {s || "All"}
+            {f.label}
           </button>
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : jobs.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500 text-sm">
           No jobs found
         </div>
@@ -551,7 +627,7 @@ function JobsTab({ jobs, onRefresh }: { jobs: TranscoderJob[]; onRefresh: () => 
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((job) => {
+                {jobs.map((job) => {
                   const saved =
                     job.original_size_bytes && job.new_size_bytes
                       ? ((job.original_size_bytes - job.new_size_bytes) / job.original_size_bytes) * 100
@@ -563,7 +639,23 @@ function JobsTab({ jobs, onRefresh }: { jobs: TranscoderJob[]; onRefresh: () => 
                       </td>
                       <td className="px-4 py-2.5 text-zinc-400">{job.library_name ?? "--"}</td>
                       <td className="px-4 py-2.5 text-zinc-400">{job.preset_name ?? "--"}</td>
-                      <td className="px-4 py-2.5"><StatusBadge status={job.status} /></td>
+                      <td className="px-4 py-2.5">
+                        <StatusBadge status={job.status} />
+                        {job.status === "running" && (() => {
+                          const p = progress[String(job.id)];
+                          const pct = p?.percent ?? 0;
+                          return (
+                            <div className="mt-1.5 space-y-0.5">
+                              <div className="h-1.5 w-24 bg-zinc-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-500 rounded-full transition-all duration-1000" style={{ width: `${pct}%` }} />
+                              </div>
+                              <div className="text-[10px] text-zinc-500">
+                                {pct.toFixed(1)}%{p?.eta ? ` -- ${p.eta}` : ""}{p && p.avg_fps > 0 ? ` -- ${p.avg_fps.toFixed(1)}fps` : ""}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-2.5 text-right text-zinc-400">
                         {job.original_size_bytes ? formatBytes(job.original_size_bytes) : "--"}
                       </td>
@@ -679,23 +771,26 @@ export default function TranscoderPage() {
   const [libraries, setLibraries] = useState<TranscoderLibrary[]>([]);
   const [presets, setPresets] = useState<TranscoderPreset[]>([]);
   const [jobs, setJobs] = useState<TranscoderJob[]>([]);
+  const [progress, setProgress] = useState<Record<string, TranscoderJobProgress>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
-      const [h, s, l, p, j] = await Promise.all([
+      const [h, s, l, p, running, completed, failed] = await Promise.all([
         getTranscoderHealth().catch(() => null),
         getTranscoderStats().catch(() => null),
         getTranscoderLibraries().catch(() => []),
         getTranscoderPresets().catch(() => []),
-        getTranscoderJobs({ limit: 100 }).catch(() => []),
+        getTranscoderJobs({ status: "running", limit: 10 }).catch(() => []),
+        getTranscoderJobs({ status: "completed", limit: 10 }).catch(() => []),
+        getTranscoderJobs({ status: "failed", limit: 10 }).catch(() => []),
       ]);
       setHealth(h);
       setStats(s);
       setLibraries(l);
       setPresets(p);
-      setJobs(j);
+      setJobs([...running, ...completed, ...failed]);
       setError("");
     } catch (e) {
       setError("Failed to connect to Transcoder service");
@@ -704,11 +799,18 @@ export default function TranscoderPage() {
     }
   }, []);
 
+  const fetchProgress = useCallback(async () => {
+    const p = await getTranscoderProgress().catch(() => ({}));
+    setProgress(p);
+  }, []);
+
   useEffect(() => {
     fetchData();
+    fetchProgress();
     const iv = setInterval(fetchData, 10_000);
-    return () => clearInterval(iv);
-  }, [fetchData]);
+    const piv = setInterval(fetchProgress, 3_000);
+    return () => { clearInterval(iv); clearInterval(piv); };
+  }, [fetchData, fetchProgress]);
 
   if (loading) {
     return (
@@ -761,9 +863,9 @@ export default function TranscoderPage() {
           ))}
         </div>
 
-        {tab === "overview" && <OverviewTab stats={stats} health={health} jobs={jobs} />}
+        {tab === "overview" && <OverviewTab stats={stats} health={health} jobs={jobs} progress={progress} />}
         {tab === "libraries" && <LibrariesTab libraries={libraries} presets={presets} onRefresh={fetchData} />}
-        {tab === "jobs" && <JobsTab jobs={jobs} onRefresh={fetchData} />}
+        {tab === "jobs" && <JobsTab onRefresh={fetchData} progress={progress} />}
         {tab === "presets" && <PresetsTab presets={presets} />}
       </div>
     </BlurFade>

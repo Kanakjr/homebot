@@ -29,7 +29,7 @@ export function useChat(
   }, [chatId, messages]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, model?: string) => {
       if (!text.trim() || isStreaming) return;
 
       const userMsg: ChatMessage = {
@@ -50,7 +50,7 @@ export function useChat(
 
       try {
         const stream = streamDeepAgentEvents(
-          { message: text, thread_id: String(chatId) },
+          { message: text, thread_id: String(chatId), model: model || undefined },
           controller.signal
         );
 

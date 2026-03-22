@@ -55,11 +55,15 @@ class ProceduralMemory:
                 is_presence INTEGER DEFAULT 0
             )
         """)
-        try:
-            await self._db.execute("ALTER TABLE device_aliases ADD COLUMN is_presence INTEGER DEFAULT 0")
-            await self._db.commit()
-        except Exception:
-            pass
+        for migration in [
+            "ALTER TABLE device_aliases ADD COLUMN is_presence INTEGER DEFAULT 0",
+            "ALTER TABLE skills ADD COLUMN model TEXT DEFAULT NULL",
+        ]:
+            try:
+                await self._db.execute(migration)
+                await self._db.commit()
+            except Exception:
+                pass
         await self._db.execute("""
             CREATE TABLE IF NOT EXISTS notification_rules (
                 id TEXT PRIMARY KEY,
@@ -103,14 +107,15 @@ class ProceduralMemory:
         ai_prompt: str = "",
         actions: list[dict] | None = None,
         notify: bool = False,
+        model: str | None = None,
     ) -> dict:
         trigger = trigger or {"type": "manual"}
         actions = actions or []
         await self._db.execute(
             """INSERT OR REPLACE INTO skills
-               (id, name, description, trigger_json, mode, ai_prompt, actions_json, notify, active, ts)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)""",
-            (skill_id, name, description, json.dumps(trigger), mode, ai_prompt, json.dumps(actions), int(notify)),
+               (id, name, description, trigger_json, mode, ai_prompt, actions_json, notify, active, model, ts)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)""",
+            (skill_id, name, description, json.dumps(trigger), mode, ai_prompt, json.dumps(actions), int(notify), model),
         )
         await self._db.commit()
         log.info("Skill created: %s", skill_id)
@@ -118,7 +123,7 @@ class ProceduralMemory:
 
     async def get_skill(self, skill_id: str) -> dict | None:
         cursor = await self._db.execute(
-            "SELECT id, name, description, trigger_json, mode, ai_prompt, actions_json, notify, active FROM skills WHERE id = ?",
+            "SELECT id, name, description, trigger_json, mode, ai_prompt, actions_json, notify, active, model FROM skills WHERE id = ?",
             (skill_id,),
         )
         row = await cursor.fetchone()
@@ -128,14 +133,14 @@ class ProceduralMemory:
 
     async def list_skills(self) -> list[dict]:
         cursor = await self._db.execute(
-            "SELECT id, name, description, trigger_json, mode, ai_prompt, actions_json, notify, active FROM skills ORDER BY ts"
+            "SELECT id, name, description, trigger_json, mode, ai_prompt, actions_json, notify, active, model FROM skills ORDER BY ts"
         )
         rows = await cursor.fetchall()
         return [self._row_to_skill(r) for r in rows]
 
     async def get_triggered_skills(self) -> list[dict]:
         cursor = await self._db.execute(
-            """SELECT id, name, description, trigger_json, mode, ai_prompt, actions_json, notify, active
+            """SELECT id, name, description, trigger_json, mode, ai_prompt, actions_json, notify, active, model
                FROM skills WHERE active = 1 AND trigger_json != '{"type": "manual"}'"""
         )
         rows = await cursor.fetchall()
@@ -159,6 +164,8 @@ class ProceduralMemory:
             await self._db.execute("UPDATE skills SET actions_json = ? WHERE id = ?", (json.dumps(updates["actions"]), skill_id))
         if "notify" in updates:
             await self._db.execute("UPDATE skills SET notify = ? WHERE id = ?", (int(updates["notify"]), skill_id))
+        if "model" in updates:
+            await self._db.execute("UPDATE skills SET model = ? WHERE id = ?", (updates["model"], skill_id))
         await self._db.commit()
         return await self.get_skill(skill_id)
 
@@ -657,4 +664,5 @@ class ProceduralMemory:
             "actions": json.loads(row[6]),
             "notify": bool(row[7]),
             "active": bool(row[8]),
+            "model": row[9] if len(row) > 9 else None,
         }

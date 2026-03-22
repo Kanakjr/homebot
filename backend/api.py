@@ -92,6 +92,7 @@ class SkillDetail(BaseModel):
     actions: list
     notify: bool
     active: bool
+    model: str | None = None
 
 
 class SkillCreate(BaseModel):
@@ -103,6 +104,7 @@ class SkillCreate(BaseModel):
     ai_prompt: str = ""
     actions: list = Field(default_factory=list)
     notify: bool = False
+    model: str | None = None
 
 
 class SkillUpdate(BaseModel):
@@ -113,6 +115,7 @@ class SkillUpdate(BaseModel):
     ai_prompt: str | None = None
     actions: list | None = None
     notify: bool | None = None
+    model: str | None = None
 
 
 class ToggleRequest(BaseModel):
@@ -267,6 +270,27 @@ async def health():
     )
 
 
+@app.get("/api/models")
+async def list_models():
+    """Return available LLM models (Gemini + Ollama if enabled)."""
+    models = [{"id": config.GEMINI_MODEL, "provider": "gemini", "name": f"Gemini ({config.GEMINI_MODEL})"}]
+    if config.OLLAMA_ENABLED:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{config.OLLAMA_URL}/api/tags",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for m in data.get("models", []):
+                            name = m.get("name", "")
+                            models.append({"id": name, "provider": "ollama", "name": name})
+        except Exception:
+            pass
+    return {"models": models}
+
+
 @app.get("/api/tools", response_model=list[ToolInfo])
 async def list_tools():
     """List all registered tools."""
@@ -296,7 +320,7 @@ async def create_skill(req: SkillCreate):
     skill = await _app_ctx.procedural.create_skill(
         skill_id=req.id, name=req.name, description=req.description,
         trigger=req.trigger, mode=req.mode, ai_prompt=req.ai_prompt,
-        actions=req.actions, notify=req.notify,
+        actions=req.actions, notify=req.notify, model=req.model,
     )
     return SkillDetail(**skill)
 
@@ -382,13 +406,23 @@ async def execute_skill(skill_id: str):
                 )
                 prompt += f"\n\nRecent event log:\n{log_text}"
 
-            ephemeral_chat_id = -random.randint(1_000_000, 9_999_999)
-            agent_result = await _app_ctx.agent.run(
-                chat_id=ephemeral_chat_id,
-                user_message=prompt,
-                system_prompt_override=await _app_ctx.agent._build_system_prompt(),
-            )
-            result_text = agent_result.text
+            skill_model = skill.get("model")
+            if skill_model:
+                from langchain_core.messages import SystemMessage as _Sys, HumanMessage as _Hum
+                import llm as _llm
+                sys_prompt = await _app_ctx.agent._build_system_prompt()
+                result_text, _ = await _llm.invoke_with_fallback(
+                    [_Sys(content=sys_prompt), _Hum(content=prompt)],
+                    model=skill_model,
+                )
+            else:
+                ephemeral_chat_id = -random.randint(1_000_000, 9_999_999)
+                agent_result = await _app_ctx.agent.run(
+                    chat_id=ephemeral_chat_id,
+                    user_message=prompt,
+                    system_prompt_override=await _app_ctx.agent._build_system_prompt(),
+                )
+                result_text = agent_result.text
         else:
             result_text = f"Unknown mode for skill '{skill['name']}'"
 
@@ -1899,6 +1933,329 @@ async def media_create_request(req: MediaRequestCreate):
                 return await resp.json()
             text = await resp.text()
             raise HTTPException(status_code=resp.status, detail=text[:300])
+
+
+# ---------------------------------------------------------------------------
+# Media Discovery: AI-powered trending content from Prowlarr indexers
+# ---------------------------------------------------------------------------
+
+import re
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
+
+_DISCOVER_CACHE: dict | None = None
+_DISCOVER_CACHE_TIME: float = 0
+_DISCOVER_TTL = 6 * 3600  # 6 hours
+_DISCOVER_LOCK = asyncio.Lock()
+
+_QUALITY_TAGS = re.compile(
+    r"\b(2160p|1080p|720p|480p|4K|UHD|HDR|HDR10|DV|"
+    r"WEB[-. ]?DL|WEBRip|BluRay|BDRip|BRRip|HDTV|DVDRip|"
+    r"x264|x265|HEVC|AV1|AAC|DTS|ATMOS|10bit|REMUX|"
+    r"PROPER|REPACK|NF|AMZN|DSNP|HMAX|ATVP)\b",
+    re.IGNORECASE,
+)
+_GROUP_TAG = re.compile(r"[_\-\s]*\[?[A-Za-z0-9]+\]?\s*$")
+_JUNK_PATTERNS = re.compile(
+    r"\b(CAM|HDCAM|TS|TELESYNC|TC|TELECINE|SCR|SCREENER|DVDSCR|SAMPLE)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_title(raw: str) -> str:
+    """Extract a human-readable title from a torrent name."""
+    name = raw.replace(".", " ").replace("_", " ")
+    name = re.sub(r"\(?\d{4}\)?", "", name, count=1)
+    name = _QUALITY_TAGS.sub("", name)
+    name = re.sub(r"\b(S\d{1,2}E?\d{0,2})\b", "", name, flags=re.IGNORECASE)
+    name = _GROUP_TAG.sub("", name)
+    name = re.sub(r"[^\w\s\'-]", " ", name)
+    name = re.sub(r"\s{2,}", " ", name).strip()
+    return name
+
+
+def _extract_quality(raw: str) -> str:
+    """Extract quality tags from a torrent title."""
+    tags = _QUALITY_TAGS.findall(raw)
+    return " ".join(dict.fromkeys(t.upper() for t in tags)) if tags else ""
+
+
+async def _fetch_prowlarr_rss() -> list[dict]:
+    """Fetch recent releases from all enabled Prowlarr indexers via torznab RSS."""
+    headers = {"X-Api-Key": config.PROWLARR_API_KEY}
+    results = []
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.get(f"{config.PROWLARR_URL}/api/v1/indexer", headers=headers) as resp:
+                if resp.status != 200:
+                    log.warning("discover: failed to list indexers: HTTP %d", resp.status)
+                    return []
+                indexers = await resp.json()
+    except Exception as e:
+        log.warning("discover: indexer list failed: %s", e)
+        return []
+
+    enabled_ids = [i["id"] for i in indexers if i.get("enable")]
+    if not enabled_ids:
+        return []
+
+    async def fetch_indexer(idx_id: int):
+        try:
+            url = f"{config.PROWLARR_URL}/{idx_id}/api"
+            params = {"t": "search", "apikey": config.PROWLARR_API_KEY, "cat": "2000,5000"}
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with aiohttp.ClientSession(timeout=timeout) as s:
+                async with s.get(url, params=params) as resp:
+                    if resp.status != 200:
+                        return
+                    xml_text = await resp.text()
+                    root = ET.fromstring(xml_text)
+                    ns = {"atom": "http://www.w3.org/2005/Atom"}
+                    channel = root.find("channel")
+                    if channel is None:
+                        return
+                    for item in channel.findall("item"):
+                        title = (item.findtext("title") or "").strip()
+                        if not title or _JUNK_PATTERNS.search(title):
+                            continue
+                        seeders = 0
+                        peers = 0
+                        size = 0
+                        download_url = ""
+                        for attr in item.findall("{http://torznab.com/schemas/2015/feed}attr"):
+                            name = attr.get("name", "")
+                            val = attr.get("value", "0")
+                            if name == "seeders":
+                                seeders = int(val)
+                            elif name == "peers":
+                                peers = int(val)
+                            elif name == "size":
+                                size = int(val)
+                        link = item.findtext("link") or ""
+                        enclosure = item.find("enclosure")
+                        if enclosure is not None:
+                            download_url = enclosure.get("url", link)
+                        else:
+                            download_url = link
+                        if not download_url:
+                            guid = item.findtext("guid") or ""
+                            if guid.startswith("magnet:"):
+                                download_url = guid
+                        indexer_name = ""
+                        for idx in indexers:
+                            if idx["id"] == idx_id:
+                                indexer_name = idx.get("name", str(idx_id))
+                                break
+                        results.append({
+                            "raw_title": title,
+                            "clean_title": _clean_title(title),
+                            "seeders": seeders,
+                            "peers": peers,
+                            "size": size,
+                            "download_url": download_url,
+                            "indexer": indexer_name,
+                            "quality": _extract_quality(title),
+                        })
+        except Exception as e:
+            log.debug("discover: indexer %d RSS failed: %s", idx_id, e)
+
+    await asyncio.gather(*(fetch_indexer(idx_id) for idx_id in enabled_ids))
+    return results
+
+
+async def _fetch_jellyseerr_trending() -> list[dict]:
+    """Fetch trending titles from Jellyseerr (TMDB-sourced)."""
+    trending = []
+    try:
+        headers = {"X-Api-Key": config.JELLYSEERR_API_KEY}
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.get(
+                f"{config.JELLYSEERR_URL}/api/v1/discover/trending",
+                headers=headers, params={"page": "1", "language": "en"},
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for r in data.get("results", [])[:20]:
+                        trending.append({
+                            "title": r.get("title") or r.get("name") or "",
+                            "media_type": r.get("mediaType", ""),
+                            "overview": (r.get("overview") or "")[:250],
+                            "year": (r.get("releaseDate") or r.get("firstAirDate") or "")[:4],
+                        })
+    except Exception as e:
+        log.debug("discover: jellyseerr trending failed: %s", e)
+    return trending
+
+
+def _deduplicate_torrents(raw: list[dict], min_seeders: int = 10) -> list[dict]:
+    """Group by clean title, keep highest-seeder variant, filter by threshold."""
+    groups: dict[str, dict] = {}
+    for item in raw:
+        key = item["clean_title"].lower()
+        if not key or len(key) < 3:
+            continue
+        if item["seeders"] < min_seeders:
+            continue
+        if key not in groups or item["seeders"] > groups[key]["seeders"]:
+            groups[key] = item
+    ranked = sorted(groups.values(), key=lambda x: x["seeders"], reverse=True)
+    return ranked[:40]
+
+
+async def _enrich_with_llm(
+    torrents: list[dict],
+    trending: list[dict],
+) -> tuple[dict[str, list[dict]], str]:
+    """Use local Qwen (or Gemini fallback) to categorize and describe top torrents."""
+    from langchain_core.messages import SystemMessage, HumanMessage
+    from llm import invoke_with_fallback
+
+    torrent_lines = []
+    for i, t in enumerate(torrents[:30]):
+        torrent_lines.append(
+            f"{i+1}. \"{t['raw_title']}\" (seeders: {t['seeders']}, "
+            f"size: {round(t['size'] / 1024 / 1024)}MB)"
+        )
+
+    trending_lines = []
+    for t in trending[:15]:
+        trending_lines.append(f"- {t['title']} ({t['year']}) [{t['media_type']}]: {t['overview'][:100]}")
+
+    prompt = (
+        "You are a media recommendation assistant. Below are two lists:\n\n"
+        "## Top Trending Torrents (by seeder count)\n"
+        + "\n".join(torrent_lines) + "\n\n"
+    )
+    if trending_lines:
+        prompt += (
+            "## TMDB Trending This Week\n"
+            + "\n".join(trending_lines) + "\n\n"
+        )
+    prompt += (
+        "Analyze and return a JSON object with this exact structure:\n"
+        '{"items": [{"index": 1, "category": "Movie|TV Show|Documentary|Anime|Other", '
+        '"title": "clean title", "description": "1-2 sentence summary of what this is and '
+        'why it might be interesting", "score": 1-5}]}\n\n'
+        "Rules:\n"
+        "- Only include items you can identify as real movies, TV shows, anime, or documentaries\n"
+        "- Skip anything that looks like spam, software, games, or adult content\n"
+        "- The index field must match the torrent number from the list above\n"
+        "- Score 5 = highly recommended, 1 = niche interest\n"
+        "- If a torrent matches a TMDB trending title, boost its score\n"
+        "- Return ONLY valid JSON, no markdown fences or explanation\n"
+    )
+
+    messages = [
+        SystemMessage(content="You are a media expert. Respond with valid JSON only."),
+        HumanMessage(content=prompt),
+    ]
+
+    try:
+        text, provider = await invoke_with_fallback(messages, prefer_local=True, temperature=0.3)
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+
+        parsed = json.loads(text)
+        items_raw = parsed.get("items", parsed if isinstance(parsed, list) else [])
+
+        categories: dict[str, list[dict]] = {}
+        for enriched in items_raw:
+            idx = enriched.get("index", 0) - 1
+            if idx < 0 or idx >= len(torrents):
+                continue
+            t = torrents[idx]
+            cat = enriched.get("category", "Other")
+            entry = {
+                "title": enriched.get("title", t["clean_title"]),
+                "description": enriched.get("description", ""),
+                "score": max(1, min(5, int(enriched.get("score", 3)))),
+                "quality": t["quality"],
+                "seeders": t["seeders"],
+                "peers": t["peers"],
+                "size_mb": round(t["size"] / 1024 / 1024),
+                "download_url": t["download_url"],
+                "indexer": t["indexer"],
+                "raw_title": t["raw_title"],
+            }
+            categories.setdefault(cat, []).append(entry)
+
+        for cat in categories:
+            categories[cat].sort(key=lambda x: x["score"], reverse=True)
+
+        return categories, provider
+    except Exception as e:
+        log.warning("discover: LLM enrichment failed: %s", e)
+        categories: dict[str, list[dict]] = {"Uncategorized": []}
+        for t in torrents[:30]:
+            categories["Uncategorized"].append({
+                "title": t["clean_title"],
+                "description": "",
+                "score": 3,
+                "quality": t["quality"],
+                "seeders": t["seeders"],
+                "peers": t["peers"],
+                "size_mb": round(t["size"] / 1024 / 1024),
+                "download_url": t["download_url"],
+                "indexer": t["indexer"],
+                "raw_title": t["raw_title"],
+            })
+        return categories, "none"
+
+
+async def _build_discover_data() -> dict:
+    """Full discover pipeline: fetch, deduplicate, enrich, return."""
+    raw_torrents, trending = await asyncio.gather(
+        _fetch_prowlarr_rss(),
+        _fetch_jellyseerr_trending(),
+    )
+
+    deduped = _deduplicate_torrents(raw_torrents)
+    if not deduped:
+        return {
+            "categories": {},
+            "total_indexed": len(raw_torrents),
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "provider": "none",
+        }
+
+    categories, provider = await _enrich_with_llm(deduped, trending)
+
+    return {
+        "categories": categories,
+        "total_indexed": len(raw_torrents),
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "provider": provider,
+    }
+
+
+@app.get("/api/media/discover")
+async def media_discover(refresh: bool = False):
+    """AI-powered media discovery: trending torrents enriched by local LLM."""
+    global _DISCOVER_CACHE, _DISCOVER_CACHE_TIME
+
+    now = time.time()
+    if not refresh and _DISCOVER_CACHE and (now - _DISCOVER_CACHE_TIME) < _DISCOVER_TTL:
+        return _DISCOVER_CACHE
+
+    async with _DISCOVER_LOCK:
+        if not refresh and _DISCOVER_CACHE and (now - _DISCOVER_CACHE_TIME) < _DISCOVER_TTL:
+            return _DISCOVER_CACHE
+
+        try:
+            data = await _build_discover_data()
+            _DISCOVER_CACHE = data
+            _DISCOVER_CACHE_TIME = time.time()
+            return data
+        except Exception as e:
+            log.error("discover: pipeline failed: %s", e)
+            if _DISCOVER_CACHE:
+                return _DISCOVER_CACHE
+            raise HTTPException(status_code=503, detail=f"Discovery unavailable: {e}")
 
 
 # ---------------------------------------------------------------------------

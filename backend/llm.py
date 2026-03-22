@@ -15,18 +15,25 @@ log = logging.getLogger("homebot.llm")
 MIN_RESPONSE_LENGTH = 20
 
 
-def get_gemini_llm(**kwargs):
+GEMINI_PREFIXES = ("gemini-",)
+
+
+def is_gemini_model(model: str) -> bool:
+    return model.lower().startswith(GEMINI_PREFIXES)
+
+
+def get_gemini_llm(*, model: str | None = None, **kwargs):
     from langchain_google_genai import ChatGoogleGenerativeAI
 
     return ChatGoogleGenerativeAI(
-        model=config.GEMINI_MODEL,
+        model=model or config.GEMINI_MODEL,
         google_api_key=config.GEMINI_API_KEY,
         temperature=kwargs.get("temperature", 0.7),
         max_output_tokens=kwargs.get("max_output_tokens", 2048),
     )
 
 
-def get_local_llm(**kwargs):
+def get_local_llm(*, model: str | None = None, **kwargs):
     if not config.OLLAMA_ENABLED:
         return None
     try:
@@ -34,7 +41,7 @@ def get_local_llm(**kwargs):
 
         return ChatOllama(
             base_url=config.OLLAMA_URL,
-            model=config.OLLAMA_MODEL,
+            model=model or config.OLLAMA_MODEL,
             temperature=kwargs.get("temperature", 0.7),
             num_predict=kwargs.get("num_predict", 1024),
         )
@@ -56,9 +63,10 @@ def extract_text(response) -> str:
     return ""
 
 
-def _inject_no_think(messages: list[BaseMessage]) -> list[BaseMessage]:
+def _inject_no_think(messages: list[BaseMessage], model_name: str = "") -> list[BaseMessage]:
     """Append /no_think to the system message for qwen3 models."""
-    if "qwen3" not in config.OLLAMA_MODEL.lower():
+    name = (model_name or config.OLLAMA_MODEL).lower()
+    if "qwen3" not in name:
         return messages
 
     patched = []
@@ -73,22 +81,36 @@ def _inject_no_think(messages: list[BaseMessage]) -> list[BaseMessage]:
 async def invoke_with_fallback(
     messages: list[BaseMessage],
     *,
+    model: str | None = None,
     prefer_local: bool = True,
     **kwargs,
 ) -> tuple[str, str]:
     """Invoke an LLM with optional local-first strategy.
 
+    When *model* is set it takes priority:
+      - A Gemini model name (starts with ``gemini-``) goes straight to Gemini.
+      - Anything else is treated as an Ollama model name.
+    When *model* is ``None`` the original local-first-then-Gemini fallback is used.
+
     Returns (text, provider) where provider is "ollama" or "gemini".
     """
-    if prefer_local:
-        local = get_local_llm(**kwargs)
+    if model and is_gemini_model(model):
+        gemini = get_gemini_llm(model=model, **kwargs)
+        response = await gemini.ainvoke(messages)
+        text = extract_text(response)
+        log.info("Gemini (%s) responded (%d chars)", model, len(text))
+        return text, "gemini"
+
+    if model or prefer_local:
+        local = get_local_llm(model=model, **kwargs)
         if local:
             try:
-                patched = _inject_no_think(messages)
+                patched = _inject_no_think(messages, model or "")
                 response = await local.ainvoke(patched)
                 text = extract_text(response)
                 if text and len(text) > MIN_RESPONSE_LENGTH:
-                    log.info("Local LLM (%s) responded (%d chars)", config.OLLAMA_MODEL, len(text))
+                    used = model or config.OLLAMA_MODEL
+                    log.info("Local LLM (%s) responded (%d chars)", used, len(text))
                     return text, "ollama"
                 log.warning("Local LLM returned insufficient response (%d chars), falling back to Gemini", len(text))
             except Exception as e:

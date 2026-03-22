@@ -44,7 +44,7 @@ A dedicated floorplan page with an inlined SVG floor plan showing live device st
 
 ### 42 Integrated Tools
 
-Home Assistant control, Sonarr, Radarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, n8n workflows, learnable skills, scene management, and three-layer memory (episodic, semantic, procedural) -- all accessible via natural language.
+Home Assistant control, Sonarr, Radarr, Transmission, Jellyseerr, Prowlarr, Jellyfin, learnable skills, scene management, and three-layer memory (episodic, semantic, procedural) -- all accessible via natural language.
 
 ![Tools](docs/screenshots/tools.png)
 
@@ -126,6 +126,7 @@ Configure notification rules (3D printer done, battery low, welcome/left home, D
 - [docs/AI_DASHBOARD.md](docs/AI_DASHBOARD.md) -- AI-customizable dashboard: widget types, editor usage, config schema
 - [docs/SMART_FEATURES.md](docs/SMART_FEATURES.md) -- Presence tracking, smart summaries, AI digests, proactive notifications
 - [docs/ROADMAP.md](docs/ROADMAP.md) -- Future roadmap: 15 planned features with priority, effort, and implementation details
+- [docs/LLM_BENCHMARK_RESULTS.md](docs/LLM_BENCHMARK_RESULTS.md) -- Aggregated model benchmarks (task quality and tool calling); regenerate from `tests/llm/results/*.json`
 
 ## Project Structure
 
@@ -141,7 +142,7 @@ homebot/
 
 ## Backend
 
-LangChain/LangGraph ReAct agent with three-layer memory and 42 tools spanning Home Assistant, media services (Sonarr, Radarr, Transmission, Jellyseerr, Prowlarr, Jellyfin), n8n workflows, scene management, and skill management.
+LangChain/LangGraph ReAct agent with three-layer memory and 36 tools spanning Home Assistant, media services (Sonarr, Radarr, Transmission, Jellyseerr, Prowlarr, Jellyfin), scene management, and skill management.
 
 Entry points:
 - `main.py` -- Telegram bot (production)
@@ -213,7 +214,6 @@ docker compose up -d homebot homebot-dashboard
 | `LANGSMITH_TRACING` | No | Enable LangSmith tracing (`true`) |
 | `LANGSMITH_API_KEY` | No | LangSmith API key |
 | `LANGSMITH_PROJECT` | No | LangSmith project name |
-| `N8N_URL` | No | n8n automation URL |
 | `SONARR_URL` | No | Sonarr API URL |
 | `SONARR_API_KEY` | No | Sonarr API key |
 | `TRANSMISSION_URL` | No | Transmission RPC URL |
@@ -249,6 +249,16 @@ python tests/test_services.py jellyfin prowlarr  # multiple services
 ```bash
 cd backend
 python tests/test_agent.py
+```
+
+### LLM benchmarks
+
+Runs write JSON under `tests/llm/results/`. Aggregate into `docs/LLM_BENCHMARK_RESULTS.md`:
+
+```bash
+python tests/llm/test_benchmark.py          # tasks from tests/llm/tasks.py
+python tests/llm/test_tool_calling.py     # bind_tools scenarios
+python tests/llm/aggregate_benchmark_doc.py
 ```
 
 ## API Reference

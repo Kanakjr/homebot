@@ -93,9 +93,6 @@ flowchart TB
     subgraph T_MEM["Memory (2)"]
       MEM_T["remember\nrecall"]
     end
-    subgraph T_N8N["Workflows (5)"]
-      N8N_T["n8n (5)"]
-    end
   end
 
   %% ───────── External Services ─────────
@@ -107,7 +104,6 @@ flowchart TB
     JELLY["Jellyseerr"]
     PROWL["Prowlarr"]
     JF["Jellyfin"]
-    N8N["n8n"]
     GEMINI["Google Gemini\n2.5 Flash"]
     TGAPI["Telegram API"]
     LSMITH["LangSmith\nTracing"]
@@ -150,7 +146,6 @@ flowchart TB
   JELLY_T --> JELLY
   PROWL_T --> PROWL
   JF_T --> JF
-  N8N_T --> N8N
   SKILL_T --> PROC
   MEM_T --> SEMA
 
@@ -183,7 +178,7 @@ flowchart TB
   class AGENT,BOOT gold
   class STATE,REACT,DCONF,CFG blue
   class EPIS,SEMA,PROC green
-  class HA_T,SONARR_T,TRANS_T,JELLY_T,PROWL_T,JF_T,SKILL_T,MEM_T,N8N_T purple
-  class HA,SONARR,TRANS,JELLY,PROWL,JF,N8N,GEMINI,TGAPI,LSMITH ext
+  class HA_T,SONARR_T,TRANS_T,JELLY_T,PROWL_T,JF_T,SKILL_T,MEM_T purple
+  class HA,SONARR,TRANS,JELLY,PROWL,JF,GEMINI,TGAPI,LSMITH ext
   class P_HOME,P_CHAT,P_DEV,P_CAM,P_ACT,P_SKILL,P_MEM,P_TOOL blue
   class DRENDER,DASSIST,CHATW,ECARD,DAPI,DHOOKS green

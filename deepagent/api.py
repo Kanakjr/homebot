@@ -31,15 +31,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_agent = None
+_agents: dict[str, tuple] = {}
 _skills_files: dict = {}
 
 
-def _get_agent():
-    global _agent, _skills_files
-    if _agent is None:
-        _agent, _skills_files = build_agent()
-    return _agent
+def _get_agent(model: str | None = None):
+    global _skills_files
+    model_key = model or config.MODEL
+    if model_key not in _agents:
+        agent, files = build_agent(model=model_key)
+        _agents[model_key] = (agent, files)
+        if not _skills_files:
+            _skills_files = files
+    return _agents[model_key]
 
 
 # -- Auth middleware ----------------------------------------------------------
@@ -61,6 +65,7 @@ async def auth_middleware(request: Request, call_next):
 class ChatRequest(BaseModel):
     message: str
     thread_id: str = "default"
+    model: str | None = None
 
 
 # -- Endpoints ----------------------------------------------------------------
@@ -75,13 +80,42 @@ async def health():
     }
 
 
+@app.get("/api/models")
+async def list_models():
+    """Return available LLM models for the deep agent."""
+    import aiohttp
+
+    model_name = config.MODEL.split(":", 1)[-1] if ":" in config.MODEL else config.MODEL
+    provider = config.MODEL.split(":", 1)[0] if ":" in config.MODEL else "google_genai"
+    models = [{"id": config.MODEL, "provider": provider, "name": model_name}]
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            ollama_url = "http://host.docker.internal:11434"
+            async with session.get(
+                f"{ollama_url}/api/tags",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for m in data.get("models", []):
+                        name = m.get("name", "")
+                        model_id = f"ollama:{name}"
+                        if model_id != config.MODEL:
+                            models.append({"id": model_id, "provider": "ollama", "name": name})
+    except Exception:
+        pass
+
+    return {"models": models}
+
+
 @app.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest):
     """Send a message and receive SSE events matching the standard backend format.
 
     Event types: thinking, tool_call, tool_result, response, error, done.
     """
-    agent = _get_agent()
+    agent, skills_files = _get_agent(req.model)
 
     async def event_generator():
         final_text = ""
@@ -95,7 +129,7 @@ async def chat_stream(req: ChatRequest):
             async for chunk in agent.astream(
                 {
                     "messages": [{"role": "user", "content": req.message}],
-                    "files": _skills_files,
+                    "files": skills_files,
                 },
                 config={"configurable": {"thread_id": req.thread_id}},
             ):
@@ -151,9 +185,9 @@ async def chat_stream(req: ChatRequest):
 
         if not response_emitted and final_text:
             yield _sse("response", {"type": "response", "content": final_text})
-        elif not response_emitted and last_tool_results:
+        el        if not response_emitted and last_tool_results:
             fallback = await _summarize_tool_results(
-                req.message, last_tool_results
+                req.message, last_tool_results, model=req.model
             )
             yield _sse("response", {"type": "response", "content": fallback})
 
@@ -167,13 +201,14 @@ async def chat_stream(req: ChatRequest):
 
 
 async def _summarize_tool_results(
-    user_question: str, tool_results: list[str]
+    user_question: str, tool_results: list[str], *, model: str | None = None,
 ) -> str:
     """Quick LLM call to summarize tool results when the agent returns empty."""
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        model_name = config.MODEL.split(":", 1)[-1] if ":" in config.MODEL else config.MODEL
+        effective = model or config.MODEL
+        model_name = effective.split(":", 1)[-1] if ":" in effective else effective
         llm = ChatGoogleGenerativeAI(
             model=model_name, google_api_key=config.GOOGLE_API_KEY
         )

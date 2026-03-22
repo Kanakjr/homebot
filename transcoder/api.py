@@ -17,7 +17,7 @@ import config
 import db
 import scheduler
 from scanner import scan_library, get_video_info, find_videos
-from transcoder import transcode_file, cancel_job, run_library_jobs
+from transcoder import transcode_file, cancel_job, run_library_jobs, get_progress
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,7 +29,13 @@ log = logging.getLogger("transcoder.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await db.get_db()
+    database = await db.get_db()
+    orphaned = await database.execute(
+        "UPDATE jobs SET status = 'pending' WHERE status = 'running'"
+    )
+    if orphaned.rowcount:
+        await database.commit()
+        log.info("Reset %d orphaned running jobs to pending", orphaned.rowcount)
     scheduler.start()
     await scheduler.sync_schedules()
     log.info("Transcoder service started on port %d", config.PORT)
@@ -255,24 +261,39 @@ async def start_path_transcode(body: PathTranscode, background_tasks: Background
         if not row:
             raise HTTPException(404, "No pending job for this file")
         if body.preset_id:
-            await database.execute("UPDATE jobs SET preset_id = ? WHERE id = ?", (body.preset_id, row["id"]))
-            await database.commit()
+            await database.execute(
+                "UPDATE jobs SET preset_id = ?, status = 'running' WHERE id = ?",
+                (body.preset_id, row["id"]),
+            )
+        else:
+            await database.execute("UPDATE jobs SET status = 'running' WHERE id = ?", (row["id"],))
+        await database.commit()
         background_tasks.add_task(transcode_file, row["id"])
         return {"message": f"Transcoding started for {os.path.basename(target)}", "jobs": 1}
 
     elif os.path.isdir(target):
+        like_pattern = target + "/%"
         cur = await database.execute(
             "SELECT id FROM jobs WHERE library_id = ? AND status = 'pending' AND file_path LIKE ?",
-            (body.library_id, target + "/%"),
+            (body.library_id, like_pattern),
         )
         rows = await cur.fetchall()
-        if body.preset_id:
-            for r in rows:
-                await database.execute("UPDATE jobs SET preset_id = ? WHERE id = ?", (body.preset_id, r["id"]))
-            await database.commit()
         job_ids = [r["id"] for r in rows]
         if not job_ids:
             raise HTTPException(404, "No pending jobs in this folder")
+
+        placeholders = ",".join("?" * len(job_ids))
+        if body.preset_id:
+            await database.execute(
+                f"UPDATE jobs SET preset_id = ?, status = 'running' WHERE id IN ({placeholders})",
+                [body.preset_id] + job_ids,
+            )
+        else:
+            await database.execute(
+                f"UPDATE jobs SET status = 'running' WHERE id IN ({placeholders})",
+                job_ids,
+            )
+        await database.commit()
 
         async def _run_jobs(ids):
             for jid in ids:
@@ -318,12 +339,10 @@ async def list_jobs(
 ):
     return await db.list_jobs(status=status, library_id=library_id, limit=limit, offset=offset)
 
-@app.get("/api/jobs/{job_id}")
-async def get_job(job_id: int):
-    job = await db.get_job(job_id)
-    if not job:
-        raise HTTPException(404, "Job not found")
-    return job
+@app.get("/api/jobs/progress")
+async def jobs_progress():
+    """Live progress for all actively transcoding jobs."""
+    return get_progress()
 
 @app.post("/api/jobs/start")
 async def start_jobs(body: JobStart, background_tasks: BackgroundTasks):
@@ -332,6 +351,13 @@ async def start_jobs(body: JobStart, background_tasks: BackgroundTasks):
         raise HTTPException(404, "Library not found")
     background_tasks.add_task(run_library_jobs, body.library_id, body.preset_id)
     return {"message": f"Transcoding started for '{lib['name']}'"}
+
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: int):
+    job = await db.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return job
 
 @app.post("/api/jobs/{job_id}/cancel")
 async def cancel_job_endpoint(job_id: int):

@@ -22,13 +22,6 @@ const TOOL_CATEGORIES: Record<string, string[]> = {
     "get_event_log",
   ],
   Memory: ["remember", "recall"],
-  n8n: [
-    "n8n_list_workflows",
-    "n8n_get_workflow",
-    "n8n_create_workflow",
-    "n8n_execute_workflow",
-    "n8n_toggle_workflow",
-  ],
   Sonarr: ["sonarr_search", "sonarr_add_series", "sonarr_list_series", "sonarr_upcoming"],
   Transmission: [
     "transmission_list",
@@ -71,7 +64,6 @@ export default function ToolsPage() {
     "Home Assistant",
     "Skills",
     "Memory",
-    "n8n",
     "Sonarr",
     "Transmission",
     "Jellyseerr",

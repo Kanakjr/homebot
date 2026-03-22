@@ -25,15 +25,15 @@
               |                  |                  |
      +--------+------+  +-------+-------+  +-------+-------+
      |   Memory      |  |   Tools       |  |   Reactor     |
-     |   (3-layer)   |  |   (35 tools)  |  |   (auto-act)  |
+     |   (3-layer)   |  |   (30 tools)  |  |   (auto-act)  |
      +---------------+  +-------+-------+  +---------------+
                                 |
      +--------+---------+-------+-------+---------+--------+
      |        |         |       |       |         |        |
-  +--+--+ +--+--+ +----+--+ +--+--+ +--+---+ +---+--+ +---+--+
-  | HA  | | n8n | | Sonarr| |Trans| |Jelly- | |Prow- | |Jelly-|
-  |     | |     | |       | |miss.| |seerr  | |larr  | |fin   |
-  +-----+ +-----+ +-------+ +-----+ +------+ +------+ +------+
+  +--+--+ +----+--+ +--+--+ +--+---+ +---+--+ +---+--+
+  | HA  | | Sonarr| |Trans| |Jelly- | |Prow- | |Jelly-|
+  |     | |       | |miss.| |seerr  | |larr  | |fin   |
+  +-----+ +-------+ +-----+ +------+ +------+ +------+
 ```
 
 ## Backend
@@ -74,14 +74,13 @@ memory/
 | Semantic | User prefs, facts | SQLite key-value | Persistent |
 | Procedural | Skills, routines | SQLite + event log | User-managed |
 
-### Tools (35 registered)
+### Tools (30 registered)
 
 | Category | Count | Tools | Source |
 |----------|-------|-------|--------|
 | Home Assistant | 4 | `ha_call_service`, `ha_get_camera_snapshot`, `ha_trigger_automation`, `ha_fire_event` | `tools/homeassistant.py` |
 | Skills | 7 | `create_skill`, `execute_skill`, `list_skills`, `update_skill`, `delete_skill`, `toggle_skill`, `get_event_log` | `tools/skills.py` |
 | Memory | 2 | `remember`, `recall` | `tools/memory_tools.py` |
-| n8n | 5 | `n8n_list_workflows`, `n8n_get_workflow`, `n8n_create_workflow`, `n8n_execute_workflow`, `n8n_toggle_workflow` | `tools/n8n.py` |
 | Sonarr | 4 | `sonarr_search`, `sonarr_add_series`, `sonarr_list_series`, `sonarr_upcoming` | `tools/sonarr.py` |
 | Transmission | 4 | `transmission_get_torrents`, `transmission_add_torrent`, `transmission_remove_torrent`, `transmission_pause_resume` | `tools/transmission.py` |
 | Jellyseerr | 3 | `jellyseerr_search`, `jellyseerr_request`, `jellyseerr_get_requests` | `tools/jellyseerr.py` |

@@ -5,7 +5,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { useChat } from "@/lib/hooks/useChat";
-import type { StreamEvent, ToolCallInfo } from "@/lib/types";
+import { getDeepAgentModels } from "@/lib/api";
+import type { StreamEvent, ToolCallInfo, ModelInfo } from "@/lib/types";
 
 const Markdown = memo(function Markdown({ content }: { content: string }) {
   return (
@@ -169,6 +170,14 @@ export default function ChatWidget({
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevMsgCount = useRef(0);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+
+  useEffect(() => {
+    getDeepAgentModels()
+      .then((data) => setAvailableModels(data.models))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -187,7 +196,7 @@ export default function ChatWidget({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
-    send(input);
+    send(input, selectedModel || undefined);
     setInput("");
   };
 
@@ -204,13 +213,27 @@ export default function ChatWidget({
         className
       )}
     >
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
-        <h3 className="text-sm font-mono text-neutral-300">
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-2">
+        <h3 className="text-sm font-mono text-neutral-300 shrink-0">
           AI Chat
         </h3>
+        {availableModels.length > 1 && (
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="min-w-0 flex-1 max-w-[220px] truncate rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-mono text-neutral-400 outline-none focus:border-cyber-yellow/50 transition-colors"
+          >
+            <option value="">Default</option>
+            {availableModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           onClick={handleClear}
-          className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+          className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
         >
           Clear
         </button>

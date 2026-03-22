@@ -1,5 +1,6 @@
 deepagents
 langchain-google-genai
+langchain-ollama
 fastapi
 uvicorn
 aiohttp

@@ -15,8 +15,9 @@ import {
   activateScene,
   deleteScene as apiDeleteScene,
   getEntities,
+  getModels,
 } from "@/lib/api";
-import type { SkillDetail, SkillCreate, SkillUpdate, Scene, EntitiesResponse } from "@/lib/types";
+import type { SkillDetail, SkillCreate, SkillUpdate, Scene, EntitiesResponse, ModelInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function TriggerBadge({ type }: { type: string }) {
@@ -47,6 +48,7 @@ const EMPTY_FORM: SkillCreate = {
   ai_prompt: "",
   actions: [],
   notify: false,
+  model: null,
 };
 
 function SkillForm({
@@ -54,11 +56,13 @@ function SkillForm({
   onSave,
   onCancel,
   saving,
+  availableModels,
 }: {
   initial: SkillCreate;
   onSave: (data: SkillCreate) => void;
   onCancel: () => void;
   saving: boolean;
+  availableModels: ModelInfo[];
 }) {
   const [form, setForm] = useState<SkillCreate>(initial);
   const isNew = !initial.id;
@@ -152,6 +156,27 @@ function SkillForm({
           className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white placeholder-neutral-600 outline-none focus:border-cyber-yellow/50 resize-none font-mono text-xs"
         />
       </div>
+
+      {form.mode === "ai" && (
+        <div>
+          <label className="text-xs text-neutral-400">Model override (optional)</label>
+          <select
+            value={form.model || ""}
+            onChange={(e) => set("model", e.target.value || null)}
+            className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-cyber-yellow/50"
+          >
+            <option value="">System default</option>
+            {availableModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} ({m.provider})
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[10px] text-neutral-600">
+            Leave as default to use the system model, or pick a specific model for this skill.
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center justify-end gap-2">
         <button
@@ -415,6 +440,7 @@ export default function SkillsPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [runningSkill, setRunningSkill] = useState<string | null>(null);
   const [skillResult, setSkillResult] = useState<{ id: string; text: string; ms: number } | null>(null);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -426,6 +452,9 @@ export default function SkillsPage() {
 
   useEffect(() => {
     refresh();
+    getModels()
+      .then((data) => setAvailableModels(data.models))
+      .catch(() => {});
   }, [refresh]);
 
   const handleCreate = async (data: SkillCreate) => {
@@ -453,6 +482,7 @@ export default function SkillsPage() {
       if (data.mode !== editingSkill.mode) updates.mode = data.mode;
       if (data.ai_prompt !== editingSkill.ai_prompt) updates.ai_prompt = data.ai_prompt;
       if (data.notify !== editingSkill.notify) updates.notify = data.notify;
+      if ((data.model || null) !== (editingSkill.model || null)) updates.model = data.model || null;
 
       if (Object.keys(updates).length > 0) {
         await updateSkill(editingSkill.id, updates);
@@ -546,6 +576,7 @@ export default function SkillsPage() {
             onSave={handleCreate}
             onCancel={() => setShowForm(false)}
             saving={saving}
+            availableModels={availableModels}
           />
         </BlurFade>
       )}
@@ -562,10 +593,12 @@ export default function SkillsPage() {
               ai_prompt: editingSkill.ai_prompt,
               actions: editingSkill.actions,
               notify: editingSkill.notify,
+              model: editingSkill.model,
             }}
             onSave={handleUpdate}
             onCancel={() => setEditingSkill(null)}
             saving={saving}
+            availableModels={availableModels}
           />
         </BlurFade>
       )}
@@ -616,11 +649,16 @@ export default function SkillsPage() {
               <p className="mt-2 text-sm text-neutral-400">
                 {skill.description}
               </p>
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
                 <TriggerBadge type={skill.trigger?.type as string || "manual"} />
                 <span className="text-xs text-neutral-500 font-mono">
                   {skill.mode}
                 </span>
+                {skill.model && (
+                  <span className="inline-flex items-center rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-mono text-cyan-400">
+                    {skill.model}
+                  </span>
+                )}
               </div>
               {skill.ai_prompt && (
                 <p className="mt-2 text-xs text-neutral-500 font-mono truncate">
