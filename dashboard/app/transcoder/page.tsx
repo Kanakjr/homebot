@@ -15,6 +15,8 @@ import {
   startTranscoderJobs,
   cancelTranscoderJob,
   getTranscoderScans,
+  browseTranscoderLibrary,
+  startPathTranscode,
 } from "@/lib/api";
 import type {
   TranscoderHealth,
@@ -23,6 +25,7 @@ import type {
   TranscoderPreset,
   TranscoderJob,
   TranscoderScan,
+  TranscoderBrowseEntry,
 } from "@/lib/types";
 
 type TabId = "overview" | "libraries" | "jobs" | "presets";
@@ -141,6 +144,152 @@ function OverviewTab({ stats, health, jobs }: { stats: TranscoderStats | null; h
 }
 
 // ---------------------------------------------------------------------------
+// Library Browser (expandable folder/file tree)
+// ---------------------------------------------------------------------------
+
+function LibraryBrowser({ libraryId }: { libraryId: number }) {
+  const [path, setPath] = useState("");
+  const [entries, setEntries] = useState<TranscoderBrowseEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [busyPath, setBusyPath] = useState<string | null>(null);
+
+  const load = useCallback(async (subpath: string) => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await browseTranscoderLibrary(libraryId, subpath);
+      setEntries(data.entries);
+      setPath(subpath);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to browse");
+    } finally {
+      setLoading(false);
+    }
+  }, [libraryId]);
+
+  useEffect(() => { load(""); }, [load]);
+
+  const breadcrumbs = path ? path.split("/") : [];
+
+  const handleTranscodePath = async (entryPath: string) => {
+    setBusyPath(entryPath);
+    try {
+      await startPathTranscode(libraryId, entryPath);
+      await load(path);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Transcode failed");
+    } finally {
+      setBusyPath(null);
+    }
+  };
+
+  const folders = entries.filter((e) => e.type === "folder");
+  const files = entries.filter((e) => e.type === "file");
+  const pendingCount = files.filter((f) => f.job_status === "pending").length;
+
+  return (
+    <div className="mt-3 border-t border-zinc-800 pt-3 space-y-2">
+      <div className="flex items-center gap-1.5 text-xs text-zinc-400 flex-wrap">
+        <button onClick={() => load("")} className="hover:text-zinc-200 transition font-medium">
+          root
+        </button>
+        {breadcrumbs.map((seg, i) => {
+          const partial = breadcrumbs.slice(0, i + 1).join("/");
+          return (
+            <span key={partial} className="flex items-center gap-1.5">
+              <span className="text-zinc-600">/</span>
+              <button onClick={() => load(partial)} className="hover:text-zinc-200 transition">
+                {seg}
+              </button>
+            </span>
+          );
+        })}
+        {loading && <span className="ml-2 text-zinc-600">loading...</span>}
+      </div>
+
+      {error && (
+        <div className="text-xs text-red-400 bg-red-500/10 rounded px-2 py-1">{error}</div>
+      )}
+
+      {pendingCount > 0 && path && (
+        <button
+          onClick={() => handleTranscodePath(path)}
+          disabled={busyPath === path}
+          className="text-xs px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-lg disabled:opacity-50 transition"
+        >
+          {busyPath === path ? "Starting..." : `Transcode folder (${pendingCount} pending)`}
+        </button>
+      )}
+
+      <div className="max-h-[400px] overflow-y-auto space-y-0.5">
+        {folders.map((entry) => (
+          <div
+            key={entry.path}
+            className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-zinc-800/50 group cursor-pointer"
+            onClick={() => load(entry.path)}
+          >
+            <div className="flex items-center gap-2 text-sm text-zinc-300 min-w-0">
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-yellow-500/70 shrink-0">
+                <path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75ZM3.75 9A1.75 1.75 0 0 0 2 10.75v4.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0 0 18 15.25v-4.5A1.75 1.75 0 0 0 16.25 9H3.75Z" />
+              </svg>
+              <span className="truncate">{entry.name}</span>
+            </div>
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 shrink-0">
+              <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clipRule="evenodd" />
+            </svg>
+          </div>
+        ))}
+
+        {files.map((entry) => (
+          <div
+            key={entry.path}
+            className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-zinc-800/50 text-sm"
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-zinc-500 shrink-0">
+                <path d="M3 3.5A1.5 1.5 0 0 1 4.5 2h6.879a1.5 1.5 0 0 1 1.06.44l4.122 4.12A1.5 1.5 0 0 1 17 7.622V16.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 16.5v-13Z" />
+              </svg>
+              <span className="truncate text-zinc-300" title={entry.name}>{entry.name}</span>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 ml-2">
+              {entry.codec && (
+                <span className="text-[11px] text-zinc-500">{entry.codec}</span>
+              )}
+              {entry.resolution && (
+                <span className="text-[11px] text-zinc-500">{entry.resolution}p</span>
+              )}
+              {entry.size != null && (
+                <span className="text-[11px] text-zinc-500 w-16 text-right">{formatBytes(entry.size)}</span>
+              )}
+              {entry.job_status && <StatusBadge status={entry.job_status} />}
+              {entry.job_status === "pending" && (
+                <button
+                  onClick={() => handleTranscodePath(entry.path)}
+                  disabled={busyPath === entry.path}
+                  className="text-[11px] px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded disabled:opacity-50 transition"
+                >
+                  {busyPath === entry.path ? "..." : "Transcode"}
+                </button>
+              )}
+              {entry.job_status === "completed" && entry.new_size != null && entry.size != null && (
+                <span className="text-[11px] text-green-400">
+                  {(((entry.size - entry.new_size) / entry.size) * 100).toFixed(0)}% saved
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {!loading && entries.length === 0 && (
+          <div className="text-xs text-zinc-500 py-4 text-center">Empty directory</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Libraries Tab
 // ---------------------------------------------------------------------------
 
@@ -157,6 +306,7 @@ function LibrariesTab({
   const [form, setForm] = useState({ name: "", path: "", scan_mode: "manual", transcode_mode: "manual", scan_cron: "" });
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [expandedLib, setExpandedLib] = useState<number | null>(null);
 
   const handleAdd = async () => {
     if (!form.name || !form.path) return;
@@ -302,6 +452,17 @@ function LibrariesTab({
                 </div>
                 <div className="flex gap-2">
                   <button
+                    onClick={() => setExpandedLib(expandedLib === lib.id ? null : lib.id)}
+                    className={cn(
+                      "px-2.5 py-1 text-xs border rounded-lg transition",
+                      expandedLib === lib.id
+                        ? "bg-zinc-700 border-zinc-600 text-zinc-200"
+                        : "bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-400",
+                    )}
+                  >
+                    Browse
+                  </button>
+                  <button
                     onClick={() => handleScan(lib.id)}
                     disabled={busy === lib.id}
                     className="px-2.5 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg disabled:opacity-50 transition"
@@ -313,7 +474,7 @@ function LibrariesTab({
                     disabled={busy === lib.id}
                     className="px-2.5 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-lg disabled:opacity-50 transition"
                   >
-                    Transcode
+                    Transcode All
                   </button>
                   <button
                     onClick={() => handleDelete(lib.id)}
@@ -323,6 +484,7 @@ function LibrariesTab({
                   </button>
                 </div>
               </div>
+              {expandedLib === lib.id && <LibraryBrowser libraryId={lib.id} />}
             </div>
           ))}
         </div>

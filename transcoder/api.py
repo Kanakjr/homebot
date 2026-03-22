@@ -1,12 +1,14 @@
 """HomeBotAI Transcoder Service -- native video transcoding via HandBrakeCLI."""
 
 import asyncio
+import json
 import logging
+import os
 import subprocess
 
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -14,7 +16,7 @@ from pydantic import BaseModel, Field
 import config
 import db
 import scheduler
-from scanner import scan_library
+from scanner import scan_library, get_video_info, find_videos
 from transcoder import transcode_file, cancel_job, run_library_jobs
 
 logging.basicConfig(
@@ -163,6 +165,123 @@ async def trigger_scan(lib_id: int, background_tasks: BackgroundTasks):
         raise HTTPException(404, "Library not found")
     background_tasks.add_task(scan_library, lib_id)
     return {"message": f"Scan started for '{lib['name']}'"}
+
+@app.get("/api/libraries/{lib_id}/browse")
+async def browse_library(lib_id: int, subpath: str = ""):
+    """List folders and video files at a given path within a library."""
+    lib = await db.get_library(lib_id)
+    if not lib:
+        raise HTTPException(404, "Library not found")
+
+    base = os.path.realpath(lib["path"])
+    target = os.path.realpath(os.path.join(base, subpath)) if subpath else base
+    if not target.startswith(base):
+        raise HTTPException(400, "Path outside library root")
+    if not os.path.isdir(target):
+        raise HTTPException(404, "Directory not found")
+
+    extensions = {e.strip() for e in lib["file_extensions"].split(",") if e.strip()}
+
+    database = await db.get_db()
+    cur = await database.execute(
+        "SELECT file_path, status, original_codec, resolution, original_size_bytes, new_size_bytes "
+        "FROM jobs WHERE library_id = ?",
+        (lib_id,),
+    )
+    job_map = {}
+    for row in await cur.fetchall():
+        job_map[row["file_path"]] = dict(row)
+
+    entries = []
+    try:
+        items = sorted(os.listdir(target))
+    except PermissionError:
+        raise HTTPException(403, "Permission denied")
+
+    for item in items:
+        full = os.path.join(target, item)
+        rel = os.path.relpath(full, base)
+        if os.path.isdir(full):
+            entries.append({
+                "type": "folder",
+                "name": item,
+                "path": rel,
+            })
+        else:
+            ext = os.path.splitext(item)[1].lower()
+            if ext not in extensions:
+                continue
+            job = job_map.get(full)
+            entries.append({
+                "type": "file",
+                "name": item,
+                "path": rel,
+                "size": os.path.getsize(full),
+                "codec": job["original_codec"] if job else None,
+                "resolution": job["resolution"] if job else None,
+                "job_status": job["status"] if job else None,
+                "new_size": job["new_size_bytes"] if job else None,
+            })
+
+    return {"library_id": lib_id, "subpath": subpath, "entries": entries}
+
+
+class PathTranscode(BaseModel):
+    library_id: int
+    path: str
+    preset_id: int | None = None
+
+
+@app.post("/api/jobs/start-path")
+async def start_path_transcode(body: PathTranscode, background_tasks: BackgroundTasks):
+    """Start transcoding for a specific file or all pending files in a folder."""
+    lib = await db.get_library(body.library_id)
+    if not lib:
+        raise HTTPException(404, "Library not found")
+
+    base = os.path.realpath(lib["path"])
+    target = os.path.realpath(os.path.join(base, body.path))
+    if not target.startswith(base):
+        raise HTTPException(400, "Path outside library root")
+
+    database = await db.get_db()
+
+    if os.path.isfile(target):
+        cur = await database.execute(
+            "SELECT id FROM jobs WHERE file_path = ? AND library_id = ? AND status = 'pending'",
+            (target, body.library_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(404, "No pending job for this file")
+        if body.preset_id:
+            await database.execute("UPDATE jobs SET preset_id = ? WHERE id = ?", (body.preset_id, row["id"]))
+            await database.commit()
+        background_tasks.add_task(transcode_file, row["id"])
+        return {"message": f"Transcoding started for {os.path.basename(target)}", "jobs": 1}
+
+    elif os.path.isdir(target):
+        cur = await database.execute(
+            "SELECT id FROM jobs WHERE library_id = ? AND status = 'pending' AND file_path LIKE ?",
+            (body.library_id, target + "/%"),
+        )
+        rows = await cur.fetchall()
+        if body.preset_id:
+            for r in rows:
+                await database.execute("UPDATE jobs SET preset_id = ? WHERE id = ?", (body.preset_id, r["id"]))
+            await database.commit()
+        job_ids = [r["id"] for r in rows]
+        if not job_ids:
+            raise HTTPException(404, "No pending jobs in this folder")
+
+        async def _run_jobs(ids):
+            for jid in ids:
+                await transcode_file(jid)
+
+        background_tasks.add_task(_run_jobs, job_ids)
+        return {"message": f"Transcoding started for {len(job_ids)} files in {os.path.basename(target)}", "jobs": len(job_ids)}
+
+    raise HTTPException(404, "Path not found")
 
 
 # -- Presets ------------------------------------------------------------------

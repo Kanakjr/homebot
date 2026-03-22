@@ -740,6 +740,23 @@ export interface TranscoderScan {
   library_name: string | null;
 }
 
+export interface TranscoderBrowseEntry {
+  type: "folder" | "file";
+  name: string;
+  path: string;
+  size?: number;
+  codec?: string | null;
+  resolution?: number | null;
+  job_status?: string | null;
+  new_size?: number | null;
+}
+
+export interface TranscoderBrowseResult {
+  library_id: number;
+  subpath: string;
+  entries: TranscoderBrowseEntry[];
+}
+
 export interface TranscoderHealth {
   status: string;
   service: string;

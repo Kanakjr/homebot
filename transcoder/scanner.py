@@ -92,7 +92,7 @@ async def scan_library(library_id: int) -> dict:
 
     database = await db.get_db()
     existing = await database.execute(
-        "SELECT file_path FROM jobs WHERE library_id = ? AND status IN ('pending','running','completed')",
+        "SELECT file_path FROM jobs WHERE library_id = ? AND status IN ('pending','running','completed','skipped')",
         (library_id,),
     )
     existing_paths = {row["file_path"] for row in await existing.fetchall()}
@@ -111,7 +111,7 @@ async def scan_library(library_id: int) -> dict:
         skip_codecs = default_preset.get("skip_codecs", [])
         if codec and codec in skip_codecs:
             files_skipped += 1
-            await db.create_job({
+            job_id = await db.create_job({
                 "library_id": library_id,
                 "preset_id": default_preset["id"],
                 "file_path": vf,
@@ -119,10 +119,7 @@ async def scan_library(library_id: int) -> dict:
                 "resolution": height,
                 "original_size_bytes": os.path.getsize(vf),
             })
-            await db.update_job(
-                (await db.get_db()).execute("SELECT last_insert_rowid()"),
-                {"status": "skipped"},
-            )
+            await db.update_job(job_id, {"status": "skipped"})
             continue
 
         files_pending += 1

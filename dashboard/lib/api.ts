@@ -44,6 +44,7 @@ import type {
   TranscoderStats,
   TranscoderScan,
   TranscoderHealth,
+  TranscoderBrowseResult,
 } from "./types";
 
 const BASE_URL =
@@ -615,4 +616,18 @@ export async function cancelTranscoderJob(id: number): Promise<{ message: string
 
 export async function getTranscoderScans(): Promise<TranscoderScan[]> {
   return fetchTranscoder<TranscoderScan[]>("/api/scans");
+}
+
+export async function browseTranscoderLibrary(id: number, subpath = ""): Promise<TranscoderBrowseResult> {
+  const sp = new URLSearchParams();
+  if (subpath) sp.set("subpath", subpath);
+  const qs = sp.toString();
+  return fetchTranscoder<TranscoderBrowseResult>(`/api/libraries/${id}/browse${qs ? `?${qs}` : ""}`);
+}
+
+export async function startPathTranscode(library_id: number, path: string, preset_id?: number): Promise<{ message: string; jobs: number }> {
+  return fetchTranscoder<{ message: string; jobs: number }>("/api/jobs/start-path", {
+    method: "POST",
+    body: JSON.stringify({ library_id, path, preset_id }),
+  });
 }
