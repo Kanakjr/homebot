@@ -968,41 +968,34 @@ async def get_dashboard_summary(regenerate: bool = False):
         if cached:
             return cached
 
-    from langchain_google_genai import ChatGoogleGenerativeAI
     from langchain_core.messages import SystemMessage, HumanMessage
+    from llm import invoke_with_fallback
 
     state_text = _app_ctx.state_cache.summarize(
         context_hint="weather temperature humidity power energy battery network bandwidth presence",
     )
 
-    llm = ChatGoogleGenerativeAI(
-        model=config.GEMINI_MODEL,
-        google_api_key=config.GEMINI_API_KEY,
-        temperature=0.7,
-        max_output_tokens=2048,
-    )
+    messages = [
+        SystemMessage(content=SUMMARY_SYSTEM_PROMPT),
+        HumanMessage(content=f"Current home state:\n{state_text}"),
+    ]
 
     try:
-        response = await llm.ainvoke([
-            SystemMessage(content=SUMMARY_SYSTEM_PROMPT),
-            HumanMessage(content=f"Current home state:\n{state_text}"),
-        ])
-        raw = response.content
-        if isinstance(raw, str):
-            summary_text = raw.strip()
-        else:
-            summary_text = "".join(
-                block.get("text", "") for block in raw
-                if isinstance(block, dict) and block.get("type") == "text"
-            ).strip()
+        summary_text, provider = await invoke_with_fallback(
+            messages,
+            prefer_local=not regenerate,
+            temperature=0.7,
+            max_output_tokens=2048,
+        )
     except Exception as e:
         log.warning("Summary generation failed: %s", e)
-        summary_text = "Welcome home. Everything is running smoothly."
+        summary_text, provider = "Welcome home. Everything is running smoothly.", "fallback"
 
-    await _app_ctx.dashboard_config.save_summary(summary_text)
+    await _app_ctx.dashboard_config.save_summary(summary_text, provider)
     return await _app_ctx.dashboard_config.get_summary() or {
         "summary": summary_text,
         "generated_at": "",
+        "provider": provider,
     }
 
 

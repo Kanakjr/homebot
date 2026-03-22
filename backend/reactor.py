@@ -92,6 +92,7 @@ class Reactor:
                         self.fire_skill,
                         CronTrigger.from_crontab(cron_expr),
                         args=[skill["id"]],
+                        kwargs={"scheduled": True},
                         id=f"skill_{skill['id']}",
                         replace_existing=True,
                     )
@@ -166,19 +167,19 @@ class Reactor:
 
         return True
 
-    async def fire_skill(self, skill_id: str, context: dict | None = None) -> str | None:
+    async def fire_skill(self, skill_id: str, context: dict | None = None, *, scheduled: bool = False) -> str | None:
         """Execute a skill by ID. Returns the result text, or None if skill not found/inactive."""
         skill = await self.procedural.get_skill(skill_id)
         if not skill or not skill.get("active"):
             return None
 
-        log.info("Firing skill: %s (mode=%s)", skill["name"], skill["mode"])
+        log.info("Firing skill: %s (mode=%s, scheduled=%s)", skill["name"], skill["mode"], scheduled)
 
         try:
             if skill["mode"] == "static":
                 result_text = await self._execute_static(skill)
             elif skill["mode"] == "ai":
-                result_text = await self._execute_ai(skill, context)
+                result_text = await self._execute_ai(skill, context, scheduled=scheduled)
             else:
                 result_text = f"Unknown mode for skill {skill['name']}"
 
@@ -223,7 +224,23 @@ class Reactor:
                 results.append(f"{tool_name}: unknown tool")
         return f"Skill '{skill['name']}' executed:\n" + "\n".join(results)
 
-    async def _execute_ai(self, skill: dict, context: dict | None = None) -> str:
+    async def _execute_ai(self, skill: dict, context: dict | None = None, *, scheduled: bool = False) -> str:
+        ai_prompt = skill.get("ai_prompt", "")
+
+        event_log = await self.procedural.get_event_log(hours=24)
+        log_text = ""
+        if event_log:
+            log_text = "\n".join(
+                f"- [{e['ts']}] {e['entity_id']}: {e['old_state']} -> {e['new_state']} ({e['event_type']})"
+                for e in event_log[-50:]
+            )
+
+        if scheduled and config.OLLAMA_ENABLED:
+            result = await self._try_local_ai(skill, ai_prompt, log_text, context)
+            if result is not None:
+                return result
+            log.info("Local LLM failed for skill '%s', falling back to Gemini agent", skill["name"])
+
         prompt = (
             f"[SKILL EXECUTION: {skill['name']}]\n"
             "You are executing a skill RIGHT NOW. Do NOT mention that the skill "
@@ -231,19 +248,12 @@ class Reactor:
             "immediately using your tools and live state data. Produce the "
             "requested output directly.\n\n"
         )
-        prompt += skill.get("ai_prompt", "")
+        prompt += ai_prompt
         if context:
             prompt += f"\n\nTrigger context: {json.dumps(context, default=str)}"
-
-        event_log = await self.procedural.get_event_log(hours=24)
-        if event_log:
-            log_text = "\n".join(
-                f"- [{e['ts']}] {e['entity_id']}: {e['old_state']} -> {e['new_state']} ({e['event_type']})"
-                for e in event_log[-50:]
-            )
+        if log_text:
             prompt += f"\n\nRecent event log:\n{log_text}"
 
-        # Use a unique negative chat_id so skill runs don't pollute user history
         import random
         ephemeral_chat_id = -random.randint(1_000_000, 9_999_999)
         result = await self.agent.run(
@@ -252,6 +262,35 @@ class Reactor:
             system_prompt_override=await self.agent._build_system_prompt(),
         )
         return result.text
+
+    async def _try_local_ai(self, skill: dict, ai_prompt: str, log_text: str, context: dict | None) -> str | None:
+        """Try generating skill output with the local LLM (no tool calling)."""
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from llm import invoke_with_fallback
+
+        state_text = self.state.summarize()
+
+        system = (
+            f"You are a smart home assistant executing the '{skill['name']}' task. "
+            f"{skill.get('description', '')} "
+            "Produce a clear, natural-language report based on the provided state data and event log. "
+            "Do not use markdown, bullet points, or emojis. Keep it concise and conversational."
+        )
+        user_parts = [ai_prompt, f"\nCurrent home state:\n{state_text}"]
+        if context:
+            user_parts.append(f"\nTrigger context: {json.dumps(context, default=str)}")
+        if log_text:
+            user_parts.append(f"\nRecent event log (last 24h):\n{log_text}")
+
+        messages = [SystemMessage(content=system), HumanMessage(content="\n".join(user_parts))]
+
+        try:
+            text, provider = await invoke_with_fallback(messages, prefer_local=True)
+            log.info("Skill '%s' generated via %s (%d chars)", skill["name"], provider, len(text))
+            return text
+        except Exception as e:
+            log.warning("Local AI for skill '%s' failed entirely: %s", skill["name"], e)
+            return None
 
     def _can_notify(self, key: str) -> bool:
         """Cooldown check to avoid notification spam."""

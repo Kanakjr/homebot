@@ -12,7 +12,7 @@ import aiosqlite
 
 log = logging.getLogger("homebot.dashboard_config")
 
-SUMMARY_TTL_SECONDS = 300  # 5 minutes
+SUMMARY_TTL_SECONDS = 1800  # 30 minutes
 
 DEFAULT_CONFIG = {
     "widgets": [
@@ -166,6 +166,11 @@ class DashboardConfig:
                 generated_at TEXT NOT NULL
             )
         """)
+        try:
+            await self._db.execute("ALTER TABLE dashboard_summary ADD COLUMN provider TEXT DEFAULT 'gemini'")
+            await self._db.commit()
+        except Exception:
+            pass  # column already exists
         await self._db.commit()
         log.info("Dashboard config initialized")
 
@@ -193,7 +198,7 @@ class DashboardConfig:
     async def get_summary(self) -> dict | None:
         """Return cached summary if it exists and is fresh (< SUMMARY_TTL_SECONDS)."""
         cursor = await self._db.execute(
-            "SELECT summary_text, generated_at FROM dashboard_summary WHERE id = 1"
+            "SELECT summary_text, generated_at, provider FROM dashboard_summary WHERE id = 1"
         )
         row = await cursor.fetchone()
         if not row:
@@ -202,12 +207,12 @@ class DashboardConfig:
         age = (datetime.now(timezone.utc) - generated_at).total_seconds()
         if age > SUMMARY_TTL_SECONDS:
             return None
-        return {"summary": row[0], "generated_at": row[1]}
+        return {"summary": row[0], "generated_at": row[1], "provider": row[2] or "gemini"}
 
-    async def save_summary(self, text: str):
+    async def save_summary(self, text: str, provider: str = "gemini"):
         now = datetime.now(timezone.utc).isoformat()
         await self._db.execute(
-            "INSERT OR REPLACE INTO dashboard_summary (id, summary_text, generated_at) VALUES (1, ?, ?)",
-            (text, now),
+            "INSERT OR REPLACE INTO dashboard_summary (id, summary_text, generated_at, provider) VALUES (1, ?, ?, ?)",
+            (text, now, provider),
         )
         await self._db.commit()

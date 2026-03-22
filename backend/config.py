@@ -50,6 +50,10 @@ TELEGRAM_ALLOWED_USERS = [
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
+OLLAMA_ENABLED = os.environ.get("OLLAMA_ENABLED", "false").lower() in ("true", "1", "yes")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+
 HA_URL = os.environ.get("HA_URL", "http://localhost:8123")
 HA_TOKEN = os.environ.get("HA_TOKEN", "")
 HA_WS_URL = HA_URL.replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"

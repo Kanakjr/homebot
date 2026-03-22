@@ -108,14 +108,18 @@ async def transcode_file(job_id: int) -> bool:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            limit=1024 * 1024,
         )
         _active_processes[job_id] = process
 
         progress_re = re.compile(
             r"Encoding: task \d+ of \d+, (\d+\.\d+) %"
         )
-        async for line in process.stdout:
-            text = line.decode("utf-8", errors="replace")
+        while True:
+            chunk = await process.stdout.read(8192)
+            if not chunk:
+                break
+            text = chunk.decode("utf-8", errors="replace")
             match = progress_re.search(text)
             if match:
                 log.debug("Job %d: %.1f%%", job_id, float(match.group(1)))
