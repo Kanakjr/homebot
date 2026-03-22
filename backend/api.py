@@ -777,11 +777,169 @@ async def update_notification_rule(rule_id: str, req: NotificationRuleUpdate):
 
 @app.get("/api/analytics")
 async def get_analytics(metric: str = "activity", hours: int = 168):
-    """Aggregated analytics: energy, presence, network, activity."""
+    """Aggregated analytics: energy, presence, network, activity.
+
+    For energy/network metrics beyond 720h (30d) HA long-term statistics
+    are used instead of the local event_log, returning daily aggregates.
+    """
     valid = {"energy", "presence", "network", "activity"}
     if metric not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid metric. Must be one of: {valid}")
+
+    if metric in ("energy", "network") and hours > 720:
+        from ha_history import fetch_ha_statistics
+
+        if metric == "energy":
+            sensors = _app_ctx.state_cache.get_energy_sensors()
+            eids = [s["entity_id"] for s in sensors if s["device_class"] in ("power", "energy")]
+        else:
+            net = _app_ctx.state_cache.get_network_data()
+            eids = [s["entity_id"] for s in net["bandwidth_sensors"]]
+
+        points = await fetch_ha_statistics(eids, hours=hours, period="day")
+
+        from collections import defaultdict
+        by_day: dict[str, dict] = defaultdict(lambda: defaultdict(lambda: {"sum": 0.0, "count": 0, "max": 0.0}))
+        for p in points:
+            day = p["ts"][:10] if len(p["ts"]) >= 10 else p["ts"]
+            eid = p["entity_id"]
+            bucket = by_day[day][eid]
+            bucket["sum"] += p["value"]
+            bucket["count"] += 1
+            bucket["max"] = max(bucket["max"], p["value"])
+
+        data = []
+        for day in sorted(by_day):
+            for eid, b in by_day[day].items():
+                avg = round(b["sum"] / b["count"], 2) if b["count"] else 0
+                data.append({
+                    "day": day,
+                    "entity_id": eid,
+                    "avg": avg,
+                    "max": round(b["max"], 2),
+                    "samples": b["count"],
+                })
+
+        return {"metric": metric, "data": data, "hours": hours}
+
     return await _app_ctx.procedural.get_analytics(metric=metric, hours=hours)
+
+
+# --- Reports endpoint ---
+
+@app.get("/api/reports/summary")
+async def get_reports_summary(hours: int = 720):
+    """Long-term report with daily aggregates, trends, and cost estimates.
+
+    Pulls energy and network data from HA long-term statistics, plus
+    activity/presence from the local event_log (capped at 30 days).
+    """
+    from collections import defaultdict
+    from datetime import datetime, timedelta, timezone as tz
+    from ha_history import fetch_ha_statistics
+
+    energy_sensors = _app_ctx.state_cache.get_energy_sensors()
+    power_eids = [s["entity_id"] for s in energy_sensors if s["device_class"] == "power"]
+    energy_eids = [s["entity_id"] for s in energy_sensors if s["device_class"] == "energy"]
+
+    net = _app_ctx.state_cache.get_network_data()
+    bw_eids = [s["entity_id"] for s in net["bandwidth_sensors"]]
+
+    energy_points = await fetch_ha_statistics(
+        power_eids + energy_eids, hours=hours, period="day",
+    )
+    network_points = await fetch_ha_statistics(
+        bw_eids, hours=hours, period="day",
+    )
+
+    local_hours = min(hours, 720)
+    activity_data = (await _app_ctx.procedural.get_analytics(
+        metric="activity", hours=local_hours,
+    )).get("data", [])
+
+    def _daily_agg(points: list[dict]) -> list[dict]:
+        buckets: dict[str, dict] = defaultdict(lambda: defaultdict(
+            lambda: {"sum": 0.0, "count": 0, "max": 0.0},
+        ))
+        for p in points:
+            day = p["ts"][:10] if len(p.get("ts", "")) >= 10 else p.get("ts", "")
+            eid = p["entity_id"]
+            b = buckets[day][eid]
+            b["sum"] += p["value"]
+            b["count"] += 1
+            b["max"] = max(b["max"], p["value"])
+        rows = []
+        for day in sorted(buckets):
+            for eid, b in buckets[day].items():
+                avg = round(b["sum"] / b["count"], 2) if b["count"] else 0
+                rows.append({"day": day, "entity_id": eid, "avg": avg, "max": round(b["max"], 2)})
+        return rows
+
+    energy_daily = _daily_agg(energy_points)
+    network_daily = _daily_agg(network_points)
+
+    def _entity_summary(daily: list[dict]) -> list[dict]:
+        totals: dict[str, dict] = defaultdict(lambda: {"sum": 0.0, "count": 0, "peak": 0.0})
+        for row in daily:
+            t = totals[row["entity_id"]]
+            t["sum"] += row["avg"]
+            t["count"] += 1
+            t["peak"] = max(t["peak"], row["max"])
+        result = []
+        for eid, t in totals.items():
+            result.append({
+                "entity_id": eid,
+                "avg": round(t["sum"] / t["count"], 2) if t["count"] else 0,
+                "peak": round(t["peak"], 2),
+                "days": t["count"],
+            })
+        result.sort(key=lambda x: x["avg"], reverse=True)
+        return result
+
+    energy_summary = _entity_summary(energy_daily)
+    network_summary = _entity_summary(network_daily)
+
+    half = hours // 2
+    cutoff = (datetime.now(tz.utc) - timedelta(hours=half)).strftime("%Y-%m-%d")
+    recent = [r for r in energy_daily if r["day"] >= cutoff]
+    older = [r for r in energy_daily if r["day"] < cutoff]
+
+    def _avg_power(rows: list[dict]) -> float:
+        vals = [r["avg"] for r in rows]
+        return round(sum(vals) / len(vals), 2) if vals else 0.0
+
+    recent_avg = _avg_power(recent)
+    older_avg = _avg_power(older)
+    trend_pct = round((recent_avg - older_avg) / older_avg * 100, 1) if older_avg else 0.0
+
+    total_kwh = sum(s["state"] for s in energy_sensors if s["device_class"] == "energy")
+    total_cost = round(total_kwh * config.ENERGY_RATE, 2)
+    peak_power = max((s["peak"] for s in energy_summary), default=0)
+
+    return {
+        "hours": hours,
+        "energy": {
+            "daily": energy_daily,
+            "top_consumers": energy_summary[:10],
+            "total_kwh": round(total_kwh, 2),
+            "estimated_cost": total_cost,
+            "peak_power_w": round(peak_power, 2),
+            "rate": config.ENERGY_RATE,
+            "currency": config.ENERGY_CURRENCY,
+        },
+        "network": {
+            "daily": network_daily,
+            "top_entities": network_summary[:10],
+        },
+        "activity": {
+            "data": activity_data,
+        },
+        "trend": {
+            "recent_avg_w": recent_avg,
+            "previous_avg_w": older_avg,
+            "change_pct": trend_pct,
+        },
+    }
 
 
 # --- Dashboard config endpoints ---
@@ -987,13 +1145,23 @@ async def edit_dashboard(req: DashboardEditRequest):
 
 @app.get("/api/network")
 async def get_network(hours: int = 24):
-    """Network status: Deco mesh nodes, connected clients, bandwidth sensors + history."""
+    """Network status: Deco mesh nodes, connected clients, bandwidth sensors + history.
+
+    For ranges <= 168h (7d) history comes from the local event_log.
+    For longer ranges HA Recorder long-term statistics are used.
+    """
+    from ha_history import fetch_ha_statistics
+
     aliases = await _app_ctx.procedural.get_device_aliases()
     network = _app_ctx.state_cache.get_network_data(aliases=aliases)
 
     bw_eids = {s["entity_id"] for s in network["bandwidth_sensors"]}
-    history = await _app_ctx.procedural.get_energy_history(hours=hours)
-    bw_history = [h for h in history if h["entity_id"] in bw_eids]
+
+    if hours <= 168:
+        history = await _app_ctx.procedural.get_energy_history(hours=hours)
+        bw_history = [h for h in history if h["entity_id"] in bw_eids]
+    else:
+        bw_history = await fetch_ha_statistics(list(bw_eids), hours=hours)
 
     return {
         **network,
@@ -1004,12 +1172,23 @@ async def get_network(hours: int = 24):
 
 @app.get("/api/energy")
 async def get_energy(hours: int = 24):
-    """Current energy sensors + historical state change data + cost."""
-    current = _app_ctx.state_cache.get_energy_sensors()
-    history = await _app_ctx.procedural.get_energy_history(hours=hours)
+    """Current energy sensors + historical state change data + cost.
 
+    For ranges <= 168h (7d) history comes from the local event_log.
+    For longer ranges HA Recorder long-term statistics are used.
+    """
+    from ha_history import fetch_ha_statistics
+
+    current = _app_ctx.state_cache.get_energy_sensors()
     energy_eids = {s["entity_id"] for s in current if s["device_class"] in ("power", "energy")}
-    filtered_history = [h for h in history if h["entity_id"] in energy_eids]
+
+    if hours <= 168:
+        history = await _app_ctx.procedural.get_energy_history(hours=hours)
+        filtered_history = [h for h in history if h["entity_id"] in energy_eids]
+    else:
+        filtered_history = await fetch_ha_statistics(
+            list(energy_eids), hours=hours,
+        )
 
     total_kwh = sum(s["state"] for s in current if s["device_class"] == "energy")
     total_cost = round(total_kwh * config.ENERGY_RATE, 2)

@@ -21,6 +21,8 @@ const TIME_RANGES = [
   { label: "7d", hours: 168 },
   { label: "14d", hours: 336 },
   { label: "30d", hours: 720 },
+  { label: "90d", hours: 2160 },
+  { label: "1y", hours: 8760 },
 ];
 
 const CHART_COLORS = [

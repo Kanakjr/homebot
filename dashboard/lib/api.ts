@@ -37,6 +37,7 @@ import type {
   ServerContainersResponse,
   TunnelRoutesResponse,
   BackupStatus,
+  ReportSummary,
 } from "./types";
 
 const BASE_URL =
@@ -504,4 +505,10 @@ export async function removeTunnelRoute(
 
 export async function getServerBackups(): Promise<BackupStatus | { status: "no_data" }> {
   return fetchJSON("/api/server/backups");
+}
+
+// --- Reports ---
+
+export async function getReportsSummary(hours = 720): Promise<ReportSummary> {
+  return fetchJSON<ReportSummary>(`/api/reports/summary?hours=${hours}`);
 }

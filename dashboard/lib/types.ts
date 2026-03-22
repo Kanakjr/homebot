@@ -331,6 +331,47 @@ export interface AnalyticsResponse {
   hours: number;
 }
 
+// --- Reports types ---
+
+export interface ReportEntitySummary {
+  entity_id: string;
+  avg: number;
+  peak: number;
+  days: number;
+}
+
+export interface ReportDailyPoint {
+  day: string;
+  entity_id: string;
+  avg: number;
+  max: number;
+}
+
+export interface ReportSummary {
+  hours: number;
+  energy: {
+    daily: ReportDailyPoint[];
+    top_consumers: ReportEntitySummary[];
+    total_kwh: number;
+    estimated_cost: number;
+    peak_power_w: number;
+    rate: number;
+    currency: string;
+  };
+  network: {
+    daily: ReportDailyPoint[];
+    top_entities: ReportEntitySummary[];
+  };
+  activity: {
+    data: AnalyticsDataPoint[];
+  };
+  trend: {
+    recent_avg_w: number;
+    previous_avg_w: number;
+    change_pct: number;
+  };
+}
+
 // --- Device alias types ---
 
 export interface DeviceAlias {

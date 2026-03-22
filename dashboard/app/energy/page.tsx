@@ -25,6 +25,9 @@ const TIME_RANGES = [
   { label: "24h", hours: 24 },
   { label: "48h", hours: 48 },
   { label: "7d", hours: 168 },
+  { label: "30d", hours: 720 },
+  { label: "90d", hours: 2160 },
+  { label: "1y", hours: 8760 },
 ];
 
 const CHART_COLORS = [
@@ -33,16 +36,21 @@ const CHART_COLORS = [
 ];
 
 function formatTime(ts: string): string {
-  const d = new Date(ts + "Z");
+  const d = new Date(ts.endsWith("Z") ? ts : ts + "Z");
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatDateTime(ts: string): string {
-  const d = new Date(ts + "Z");
+  const d = new Date(ts.endsWith("Z") ? ts : ts + "Z");
   return d.toLocaleString([], {
     month: "short", day: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
+}
+
+function formatDate(ts: string): string {
+  const d = new Date(ts.endsWith("Z") ? ts : ts + "Z");
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function CustomTooltip({ active, payload, label }: any) {
@@ -212,7 +220,9 @@ export default function EnergyPage() {
     for (const point of data.history) {
       const key = hours <= 24
         ? formatTime(point.ts)
-        : formatDateTime(point.ts);
+        : hours <= 168
+          ? formatDateTime(point.ts)
+          : formatDate(point.ts);
       if (!buckets.has(key)) buckets.set(key, {});
       const name = entityNames.get(point.entity_id) || point.entity_id.split(".").pop() || point.entity_id;
       buckets.get(key)![name] = point.value;
