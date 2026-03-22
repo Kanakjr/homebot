@@ -674,6 +674,80 @@ export interface BackupStatus {
   };
 }
 
+// --- Transcoder types ---
+
+export interface TranscoderLibrary {
+  id: number;
+  name: string;
+  path: string;
+  file_extensions: string;
+  scan_mode: string;
+  transcode_mode: string;
+  scan_cron: string | null;
+  enabled: number;
+  created_at: string;
+}
+
+export interface TranscoderPreset {
+  id: number;
+  name: string;
+  encoder: string;
+  container: string;
+  encoder_preset: string | null;
+  audio_encoder: string;
+  audio_bitrate: number;
+  audio_mixdown: string;
+  quality_rules: Record<string, number>;
+  skip_codecs: string[];
+  is_default: number;
+  created_at: string;
+}
+
+export interface TranscoderJob {
+  id: number;
+  library_id: number;
+  preset_id: number;
+  file_path: string;
+  status: string;
+  original_codec: string | null;
+  resolution: number | null;
+  original_size_bytes: number | null;
+  new_size_bytes: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  handbrake_command: string | null;
+  created_at: string;
+  library_name: string | null;
+  preset_name: string | null;
+}
+
+export interface TranscoderStats {
+  files_processed: number;
+  space_saved_bytes: number;
+  avg_compression_pct: number;
+  job_counts: Record<string, number>;
+}
+
+export interface TranscoderScan {
+  id: number;
+  library_id: number;
+  files_found: number;
+  files_pending: number;
+  files_skipped: number;
+  started_at: string;
+  completed_at: string | null;
+  library_name: string | null;
+}
+
+export interface TranscoderHealth {
+  status: string;
+  service: string;
+  port: number;
+  handbrake_cli: string;
+  active_jobs: number;
+}
+
 // --- Health data types ---
 
 export interface HealthSensorReading {

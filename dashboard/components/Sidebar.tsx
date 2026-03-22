@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/memory", label: "Memory", icon: "brain" },
   { href: "/tools", label: "Tools", icon: "wrench" },
   { href: "/media", label: "Media", icon: "film" },
+  { href: "/transcoder", label: "Transcoder", icon: "scissors" },
   { href: "/home-map", label: "Home Map", icon: "map" },
   { href: "/health", label: "Health", icon: "heart" },
   { href: "/analytics", label: "Analytics", icon: "chart" },
@@ -96,6 +97,11 @@ function NavIcon({ icon, className }: { icon: string; className?: string }) {
     report: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className={className}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+      </svg>
+    ),
+    scissors: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="m7.848 8.25 1.536.887M7.848 8.25a3 3 0 1 1-5.196-3 3 3 0 0 1 5.196 3Zm1.536.887a2.165 2.165 0 0 1 1.083 1.839c.005.351.054.695.14 1.024M9.384 9.137l2.077 1.199M7.848 15.75l1.536-.887m-1.536.887a3 3 0 1 1-5.196 3 3 3 0 0 1 5.196-3Zm1.536-.887a2.165 2.165 0 0 0 1.083-1.838c.005-.352.054-.695.14-1.025m-1.223 2.863 2.077-1.199m0-3.328a4.323 4.323 0 0 1 2.068-1.379l5.325-1.628a4.5 4.5 0 0 1 2.48-.044l.803.215-7.794 4.5m-2.882-1.664A4.33 4.33 0 0 0 10.607 12m1.854-1.664 2.882 1.664m0 0a4.33 4.33 0 0 1-.854 1.664m.854-1.664-2.882 1.664m3.736 0-.854 1.664m0 0a4.323 4.323 0 0 1-2.068 1.379l-5.325 1.628a4.5 4.5 0 0 1-2.48.044l-.803-.215 7.794-4.5" />
       </svg>
     ),
     film: (

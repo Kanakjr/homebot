@@ -38,12 +38,20 @@ import type {
   TunnelRoutesResponse,
   BackupStatus,
   ReportSummary,
+  TranscoderLibrary,
+  TranscoderPreset,
+  TranscoderJob,
+  TranscoderStats,
+  TranscoderScan,
+  TranscoderHealth,
 } from "./types";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const DEEP_AGENT_URL =
   process.env.NEXT_PUBLIC_DEEP_AGENT_URL ?? "http://localhost:8322";
+const TRANSCODER_URL =
+  process.env.NEXT_PUBLIC_TRANSCODER_URL ?? "http://localhost:8323";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 
 function authHeaders(extra?: HeadersInit): HeadersInit {
@@ -511,4 +519,100 @@ export async function getServerBackups(): Promise<BackupStatus | { status: "no_d
 
 export async function getReportsSummary(hours = 720): Promise<ReportSummary> {
   return fetchJSON<ReportSummary>(`/api/reports/summary?hours=${hours}`);
+}
+
+// --- Transcoder ---
+
+async function fetchTranscoder<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${TRANSCODER_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(API_KEY && { "X-API-Key": API_KEY }),
+      ...(init?.headers as Record<string, string>),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Transcoder API ${res.status}: ${await res.text()}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export async function getTranscoderHealth(): Promise<TranscoderHealth> {
+  return fetchTranscoder<TranscoderHealth>("/api/health");
+}
+
+export async function getTranscoderStats(): Promise<TranscoderStats> {
+  return fetchTranscoder<TranscoderStats>("/api/stats");
+}
+
+export async function getTranscoderLibraries(): Promise<TranscoderLibrary[]> {
+  return fetchTranscoder<TranscoderLibrary[]>("/api/libraries");
+}
+
+export async function createTranscoderLibrary(data: Partial<TranscoderLibrary>): Promise<TranscoderLibrary> {
+  return fetchTranscoder<TranscoderLibrary>("/api/libraries", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTranscoderLibrary(id: number, data: Partial<TranscoderLibrary>): Promise<TranscoderLibrary> {
+  return fetchTranscoder<TranscoderLibrary>(`/api/libraries/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTranscoderLibrary(id: number): Promise<void> {
+  await fetchTranscoder<void>(`/api/libraries/${id}`, { method: "DELETE" });
+}
+
+export async function scanTranscoderLibrary(id: number): Promise<{ message: string }> {
+  return fetchTranscoder<{ message: string }>(`/api/libraries/${id}/scan`, { method: "POST" });
+}
+
+export async function getTranscoderPresets(): Promise<TranscoderPreset[]> {
+  return fetchTranscoder<TranscoderPreset[]>("/api/presets");
+}
+
+export async function createTranscoderPreset(data: Partial<TranscoderPreset>): Promise<TranscoderPreset> {
+  return fetchTranscoder<TranscoderPreset>("/api/presets", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTranscoderPreset(id: number): Promise<void> {
+  await fetchTranscoder<void>(`/api/presets/${id}`, { method: "DELETE" });
+}
+
+export async function getTranscoderJobs(params?: {
+  status?: string;
+  library_id?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<TranscoderJob[]> {
+  const sp = new URLSearchParams();
+  if (params?.status) sp.set("status", params.status);
+  if (params?.library_id) sp.set("library_id", String(params.library_id));
+  if (params?.limit) sp.set("limit", String(params.limit));
+  if (params?.offset) sp.set("offset", String(params.offset));
+  const qs = sp.toString();
+  return fetchTranscoder<TranscoderJob[]>(`/api/jobs${qs ? `?${qs}` : ""}`);
+}
+
+export async function startTranscoderJobs(library_id: number, preset_id?: number): Promise<{ message: string }> {
+  return fetchTranscoder<{ message: string }>("/api/jobs/start", {
+    method: "POST",
+    body: JSON.stringify({ library_id, preset_id }),
+  });
+}
+
+export async function cancelTranscoderJob(id: number): Promise<{ message: string }> {
+  return fetchTranscoder<{ message: string }>(`/api/jobs/${id}/cancel`, { method: "POST" });
+}
+
+export async function getTranscoderScans(): Promise<TranscoderScan[]> {
+  return fetchTranscoder<TranscoderScan[]>("/api/scans");
 }
