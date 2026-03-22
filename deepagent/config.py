@@ -10,6 +10,8 @@ load_dotenv()
 # --- LLM ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 MODEL = os.getenv("MODEL", "ollama:sorc/qwen3.5-claude-4.6-opus-q4:2b")
+# Ollama HTTP API base (used by ChatOllama and /api/models). In Docker use host.docker.internal; on host use 127.0.0.1.
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 
 # --- Home Assistant ---
 HA_URL = os.getenv("HA_URL", "http://localhost:8123")

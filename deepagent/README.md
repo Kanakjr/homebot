@@ -276,7 +276,8 @@ curl -N http://localhost:8322/api/chat/stream \
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GOOGLE_API_KEY` | -- | Gemini API key (required) |
-| `MODEL` | `google_genai:gemini-3-flash-preview` | LLM model identifier |
+| `MODEL` | `ollama:...` (see `.env.example`) | LLM spec: `google_genai:...` or `ollama:<ollama model name>` |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama HTTP base; in Docker use `http://host.docker.internal:11434` (see root `docker-compose.yml`) |
 | `HA_URL` | `http://localhost:8123` | Home Assistant URL |
 | `HA_TOKEN` | -- | HA long-lived access token |
 | `SONARR_URL` | `http://localhost:8989` | Sonarr API URL |

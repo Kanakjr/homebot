@@ -5,6 +5,8 @@ import logging
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
 from deepagents.backends.utils import create_file_data
+from langchain.chat_models import init_chat_model
+from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 
 import config
@@ -89,6 +91,13 @@ def _load_skills_files() -> dict:
     return files
 
 
+def _resolve_model(model_spec: str) -> str | BaseChatModel:
+    """Turn provider:model into a chat model; Ollama needs base_url (not localhost in Docker)."""
+    if model_spec.startswith("ollama:"):
+        return init_chat_model(model_spec, base_url=config.OLLAMA_URL)
+    return model_spec
+
+
 def build_agent(model: str | None = None):
     """Build and return the deep agent graph.
 
@@ -101,8 +110,10 @@ def build_agent(model: str | None = None):
     all_tools = get_all_tools()
     skills_files = _load_skills_files()
 
+    resolved = _resolve_model(effective_model)
+
     agent = create_deep_agent(
-        model=effective_model,
+        model=resolved,
         tools=all_tools,
         system_prompt=SYSTEM_PROMPT,
         skills=["/skills/"],

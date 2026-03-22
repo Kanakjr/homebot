@@ -91,7 +91,7 @@ async def list_models():
 
     try:
         async with aiohttp.ClientSession() as session:
-            ollama_url = "http://host.docker.internal:11434"
+            ollama_url = config.OLLAMA_URL.rstrip("/")
             async with session.get(
                 f"{ollama_url}/api/tags",
                 timeout=aiohttp.ClientTimeout(total=5),
@@ -185,7 +185,7 @@ async def chat_stream(req: ChatRequest):
 
         if not response_emitted and final_text:
             yield _sse("response", {"type": "response", "content": final_text})
-        el        if not response_emitted and last_tool_results:
+        elif not response_emitted and last_tool_results:
             fallback = await _summarize_tool_results(
                 req.message, last_tool_results, model=req.model
             )
