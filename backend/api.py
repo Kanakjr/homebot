@@ -1729,6 +1729,208 @@ async def media_create_request(req: MediaRequestCreate):
             raise HTTPException(status_code=resp.status, detail=text[:300])
 
 
+# ---------------------------------------------------------------------------
+# Server management: Docker containers + Cloudflare Tunnel routes
+# ---------------------------------------------------------------------------
+
+_CF_API_BASE = "https://api.cloudflare.com/client/v4"
+
+
+def _cf_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {os.environ.get('CF_API_TOKEN', '')}",
+        "Content-Type": "application/json",
+    }
+
+
+def _cf_tunnel_url(path: str = "") -> str:
+    acct = os.environ.get("CF_ACCOUNT_ID", "")
+    tid = os.environ.get("TUNNEL_ID", "")
+    return f"{_CF_API_BASE}/accounts/{acct}/cfd_tunnel/{tid}/{path}"
+
+
+@app.get("/api/server/containers")
+async def server_containers():
+    """List Docker containers with status, health, image, ports, and uptime."""
+    import docker as docker_sdk
+    from datetime import datetime, timezone as tz
+
+    try:
+        client = docker_sdk.from_env()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Docker unavailable: {e}")
+
+    now = datetime.now(tz.utc)
+    result = []
+    for c in client.containers.list(all=True):
+        attrs = c.attrs or {}
+        state = attrs.get("State", {})
+        health_obj = state.get("Health")
+        health = health_obj.get("Status") if health_obj else None
+
+        port_map: dict[str, int | None] = {}
+        net_settings = attrs.get("NetworkSettings", {})
+        for container_port, bindings in (net_settings.get("Ports") or {}).items():
+            port_num = container_port.split("/")[0]
+            host_port = None
+            if bindings:
+                for b in bindings:
+                    hp = b.get("HostPort")
+                    if hp:
+                        host_port = int(hp)
+                        break
+            if host_port:
+                port_map[port_num] = host_port
+
+        started = state.get("StartedAt", "")
+        uptime = ""
+        if started and state.get("Running"):
+            try:
+                st = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                delta = now - st
+                hours, rem = divmod(int(delta.total_seconds()), 3600)
+                minutes = rem // 60
+                if hours >= 24:
+                    uptime = f"{hours // 24}d {hours % 24}h"
+                elif hours > 0:
+                    uptime = f"{hours}h {minutes}m"
+                else:
+                    uptime = f"{minutes}m"
+            except Exception:
+                pass
+
+        img_tags = (c.image.tags or []) if c.image else []
+        result.append({
+            "name": c.name,
+            "image": img_tags[0] if img_tags else (attrs.get("Config", {}).get("Image", "")),
+            "status": state.get("Status", c.status),
+            "health": health,
+            "ports": port_map,
+            "started_at": started,
+            "uptime": uptime,
+        })
+
+    result.sort(key=lambda x: x["name"])
+    return {"containers": result}
+
+
+@app.get("/api/server/tunnel")
+async def server_tunnel_list():
+    """List Cloudflare Tunnel published application routes."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(_cf_tunnel_url("configurations"), headers=_cf_headers())
+    data = resp.json()
+    if not data.get("success"):
+        errors = data.get("errors", [])
+        detail = errors[0].get("message") if errors else "Unknown error"
+        raise HTTPException(status_code=502, detail=f"Cloudflare API: {detail}")
+
+    domain = os.environ.get("TUNNEL_DOMAIN", "")
+    routes = []
+    for rule in data["result"]["config"]["ingress"]:
+        hostname = rule.get("hostname")
+        if hostname:
+            routes.append({"hostname": hostname, "service": rule["service"]})
+
+    return {"routes": routes, "domain": domain}
+
+
+class TunnelRouteRequest(BaseModel):
+    subdomain: str = Field(..., description="Subdomain to add (e.g. 'uptime')")
+    service: str = Field(..., description="Service URL (e.g. 'http://uptime-kuma:3001')")
+
+
+@app.post("/api/server/tunnel")
+async def server_tunnel_add(req: TunnelRouteRequest):
+    """Add a published application route to the Cloudflare Tunnel."""
+    import httpx
+
+    domain = os.environ.get("TUNNEL_DOMAIN", "")
+    hostname = f"{req.subdomain}.{domain}"
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(_cf_tunnel_url("configurations"), headers=_cf_headers())
+    data = resp.json()
+    if not data.get("success"):
+        raise HTTPException(status_code=502, detail="Failed to read tunnel config")
+
+    ingress = data["result"]["config"]["ingress"]
+    for rule in ingress:
+        if rule.get("hostname") == hostname:
+            raise HTTPException(status_code=409, detail=f"{hostname} already exists")
+
+    ingress.insert(-1, {"service": req.service, "hostname": hostname, "originRequest": {}})
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.put(
+            _cf_tunnel_url("configurations"),
+            headers=_cf_headers(),
+            json={"config": data["result"]["config"]},
+        )
+    result = resp.json()
+    if not result.get("success"):
+        errors = result.get("errors", [])
+        detail = errors[0].get("message") if errors else "Unknown error"
+        raise HTTPException(status_code=502, detail=f"Cloudflare API: {detail}")
+
+    return {"status": "ok", "hostname": hostname, "service": req.service}
+
+
+@app.delete("/api/server/tunnel/{subdomain}")
+async def server_tunnel_remove(subdomain: str):
+    """Remove a published application route from the Cloudflare Tunnel."""
+    import httpx
+
+    domain = os.environ.get("TUNNEL_DOMAIN", "")
+    hostname = f"{subdomain}.{domain}"
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(_cf_tunnel_url("configurations"), headers=_cf_headers())
+    data = resp.json()
+    if not data.get("success"):
+        raise HTTPException(status_code=502, detail="Failed to read tunnel config")
+
+    ingress = data["result"]["config"]["ingress"]
+    original_len = len(ingress)
+    ingress = [r for r in ingress if r.get("hostname") != hostname]
+
+    if len(ingress) == original_len:
+        raise HTTPException(status_code=404, detail=f"{hostname} not found")
+
+    data["result"]["config"]["ingress"] = ingress
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.put(
+            _cf_tunnel_url("configurations"),
+            headers=_cf_headers(),
+            json={"config": data["result"]["config"]},
+        )
+    result = resp.json()
+    if not result.get("success"):
+        errors = result.get("errors", [])
+        detail = errors[0].get("message") if errors else "Unknown error"
+        raise HTTPException(status_code=502, detail=f"Cloudflare API: {detail}")
+
+    return {"status": "ok", "hostname": hostname}
+
+
+@app.get("/api/server/backups")
+async def server_backups():
+    """Return backup status from the JSON file written by homeserver.sh."""
+    import json as _json
+    from pathlib import Path
+
+    status_file = Path(os.environ.get("DATA_DIR", "/app/data")) / "backup-status.json"
+    if not status_file.exists():
+        return {"status": "no_data"}
+    try:
+        return _json.loads(status_file.read_text())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read backup status: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="HomeBotAI REST API")
     parser.add_argument("--port", type=int, default=8321, help="Port (default: 8321)")

@@ -4,25 +4,18 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { BlurFade } from "@/components/magicui/blur-fade";
 import { getAnalytics } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { AnalyticsResponse, AnalyticsDataPoint } from "@/lib/types";
+import type { AnalyticsDataPoint } from "@/lib/types";
 import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
-  LineChart,
-  Line,
 } from "recharts";
-
-const METRICS = [
-  { id: "activity", label: "Activity" },
-  { id: "energy", label: "Energy" },
-  { id: "presence", label: "Presence" },
-  { id: "network", label: "Network" },
-];
 
 const TIME_RANGES = [
   { label: "7d", hours: 168 },
@@ -36,6 +29,20 @@ const CHART_COLORS = [
   "#818cf8", "#fbbf24", "#6ee7b7", "#93c5fd",
 ];
 
+const SECTION_COLORS: Record<string, string> = {
+  activity: "#FFD700",
+  energy: "#60a5fa",
+  presence: "#4ade80",
+  network: "#a78bfa",
+};
+
+interface AllMetrics {
+  activity: AnalyticsDataPoint[];
+  energy: AnalyticsDataPoint[];
+  presence: AnalyticsDataPoint[];
+  network: AnalyticsDataPoint[];
+}
+
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
@@ -43,223 +50,359 @@ function CustomTooltip({ active, payload, label }: any) {
       <p className="mb-1 text-neutral-400">{label}</p>
       {payload.map((p: any) => (
         <p key={p.dataKey} style={{ color: p.color }}>
-          {p.name}: {typeof p.value === "number" ? p.value.toLocaleString() : p.value}
+          {p.name}: {typeof p.value === "number" ? p.value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : p.value}
         </p>
       ))}
     </div>
   );
 }
 
-function ActivityChart({ data }: { data: AnalyticsDataPoint[] }) {
-  const chartData = useMemo(() => {
+function useActivityChart(data: AnalyticsDataPoint[]) {
+  return useMemo(() => {
     const byDay = new Map<string, Record<string, number>>();
     for (const d of data) {
       if (!d.day || !d.domain) continue;
       if (!byDay.has(d.day)) byDay.set(d.day, {});
       byDay.get(d.day)![d.domain] = (byDay.get(d.day)![d.domain] || 0) + (d.events || 0);
     }
-    return Array.from(byDay.entries())
+    const chartData = Array.from(byDay.entries())
       .map(([day, domains]) => ({ day: day.slice(5), ...domains }))
       .sort((a, b) => a.day.localeCompare(b.day));
-  }, [data]);
 
-  const domains = useMemo(() => {
     const keys = new Set<string>();
     for (const row of chartData) {
-      for (const k of Object.keys(row)) {
-        if (k !== "day") keys.add(k);
-      }
+      for (const k of Object.keys(row)) if (k !== "day") keys.add(k);
     }
-    return Array.from(keys).sort((a, b) => {
-      const totalA = chartData.reduce((s, r) => s + ((r as any)[a] || 0), 0);
-      const totalB = chartData.reduce((s, r) => s + ((r as any)[b] || 0), 0);
-      return totalB - totalA;
-    }).slice(0, 8);
-  }, [chartData]);
+    const series = Array.from(keys)
+      .sort((a, b) => {
+        const tA = chartData.reduce((s, r) => s + ((r as any)[a] || 0), 0);
+        const tB = chartData.reduce((s, r) => s + ((r as any)[b] || 0), 0);
+        return tB - tA;
+      })
+      .slice(0, 8);
 
-  if (!chartData.length) return <p className="text-sm text-neutral-500">No activity data yet.</p>;
-
-  return (
-    <div className="h-72 sm:h-80">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#737373" }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "#737373" }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} width={45} />
-          <Tooltip content={<CustomTooltip />} />
-          {domains.map((d, i) => (
-            <Bar key={d} dataKey={d} name={d} stackId="a" fill={CHART_COLORS[i % CHART_COLORS.length]} />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
+    return { chartData, series };
+  }, [data]);
 }
 
-function EnergyChart({ data }: { data: AnalyticsDataPoint[] }) {
-  const chartData = useMemo(() => {
+function useEntityChart(data: AnalyticsDataPoint[], valueKey: "avg" | "transitions" = "avg") {
+  return useMemo(() => {
     const byDay = new Map<string, Record<string, number>>();
     for (const d of data) {
       if (!d.day || !d.entity_id) continue;
       const name = d.entity_id.split(".").pop() || d.entity_id;
+      const key = valueKey === "transitions" && d.state ? `${name}_${d.state}` : name;
       if (!byDay.has(d.day)) byDay.set(d.day, {});
-      byDay.get(d.day)![name] = d.avg || 0;
+      byDay.get(d.day)![key] = (byDay.get(d.day)![key] || 0) + ((d as any)[valueKey] || 0);
     }
-    return Array.from(byDay.entries())
+    const chartData = Array.from(byDay.entries())
       .map(([day, values]) => ({ day: day.slice(5), ...values }))
       .sort((a, b) => a.day.localeCompare(b.day));
-  }, [data]);
 
-  const series = useMemo(() => {
     const keys = new Set<string>();
     for (const row of chartData) {
-      for (const k of Object.keys(row)) {
-        if (k !== "day") keys.add(k);
-      }
+      for (const k of Object.keys(row)) if (k !== "day") keys.add(k);
     }
-    return Array.from(keys).slice(0, 8);
-  }, [chartData]);
+    const series = Array.from(keys).slice(0, 8);
+    return { chartData, series };
+  }, [data, valueKey]);
+}
 
-  if (!chartData.length) return <p className="text-sm text-neutral-500">No energy data yet.</p>;
-
+function ActivityChartCard({ data }: { data: AnalyticsDataPoint[] }) {
+  const { chartData, series } = useActivityChart(data);
+  if (!chartData.length) return <EmptyChart />;
   return (
-    <div className="h-72 sm:h-80">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#737373" }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "#737373" }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} width={45} />
-          <Tooltip content={<CustomTooltip />} />
-          {series.map((s, i) => (
-            <Line key={s} type="monotone" dataKey={s} name={s} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} connectNulls />
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={chartData}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+        <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#525252" }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fontSize: 10, fill: "#525252" }} axisLine={false} tickLine={false} width={35} />
+        <Tooltip content={<CustomTooltip />} />
+        {series.map((d, i) => (
+          <Bar key={d} dataKey={d} name={d} stackId="a" fill={CHART_COLORS[i % CHART_COLORS.length]} radius={i === series.length - 1 ? [2, 2, 0, 0] : undefined} />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function GradientAreaChart({ data, series, id }: { data: any[]; series: string[]; id: string }) {
+  if (!data.length) return <EmptyChart />;
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={data}>
+        <defs>
+          {series.map((name, i) => (
+            <linearGradient key={name} id={`${id}-grad-${i}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.3} />
+              <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0} />
+            </linearGradient>
           ))}
-        </LineChart>
-      </ResponsiveContainer>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+        <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#525252" }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fontSize: 10, fill: "#525252" }} axisLine={false} tickLine={false} width={35} />
+        <Tooltip content={<CustomTooltip />} />
+        {series.map((s, i) => (
+          <Area key={s} type="monotone" dataKey={s} name={s} stroke={CHART_COLORS[i % CHART_COLORS.length]} fill={`url(#${id}-grad-${i})`} strokeWidth={1.5} dot={false} connectNulls />
+        ))}
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function PresenceChartCard({ data }: { data: AnalyticsDataPoint[] }) {
+  const { chartData, series } = useEntityChart(data, "transitions");
+  if (!chartData.length) return <EmptyChart />;
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={chartData}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+        <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#525252" }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fontSize: 10, fill: "#525252" }} axisLine={false} tickLine={false} width={35} />
+        <Tooltip content={<CustomTooltip />} />
+        {series.map((s, i) => (
+          <Bar key={s} dataKey={s} name={s} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[2, 2, 0, 0]} />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function EmptyChart() {
+  return (
+    <div className="flex h-full items-center justify-center text-xs text-neutral-600">
+      No data yet
     </div>
   );
 }
 
-function PresenceChart({ data }: { data: AnalyticsDataPoint[] }) {
-  const chartData = useMemo(() => {
-    const byDay = new Map<string, Record<string, number>>();
-    for (const d of data) {
-      if (!d.day || !d.entity_id) continue;
-      const name = d.entity_id.split(".").pop() || d.entity_id;
-      const key = `${name}_${d.state || ""}`;
-      if (!byDay.has(d.day)) byDay.set(d.day, {});
-      byDay.get(d.day)![key] = (byDay.get(d.day)![key] || 0) + (d.transitions || 0);
-    }
-    return Array.from(byDay.entries())
-      .map(([day, values]) => ({ day: day.slice(5), ...values }))
-      .sort((a, b) => a.day.localeCompare(b.day));
-  }, [data]);
-
-  const series = useMemo(() => {
-    const keys = new Set<string>();
-    for (const row of chartData) {
-      for (const k of Object.keys(row)) {
-        if (k !== "day") keys.add(k);
-      }
-    }
-    return Array.from(keys).slice(0, 10);
-  }, [chartData]);
-
-  if (!chartData.length) return <p className="text-sm text-neutral-500">No presence data yet.</p>;
-
+function ChartCard({
+  title,
+  accent,
+  count,
+  children,
+}: {
+  title: string;
+  accent: string;
+  count: number;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="h-72 sm:h-80">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#737373" }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "#737373" }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} width={45} />
-          <Tooltip content={<CustomTooltip />} />
-          {series.map((s, i) => (
-            <Bar key={s} dataKey={s} name={s} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex flex-col">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: accent }} />
+          <h3 className="text-sm font-medium text-neutral-300">{title}</h3>
+        </div>
+        <span className="text-[10px] font-mono text-neutral-500">
+          {count.toLocaleString()} pts
+        </span>
+      </div>
+      <div className="h-48 sm:h-56 flex-1">{children}</div>
     </div>
   );
 }
 
-function NetworkChart({ data }: { data: AnalyticsDataPoint[] }) {
-  const chartData = useMemo(() => {
-    const byDay = new Map<string, Record<string, number>>();
-    for (const d of data) {
-      if (!d.day || !d.entity_id) continue;
-      const name = d.entity_id.split(".").pop() || d.entity_id;
-      if (!byDay.has(d.day)) byDay.set(d.day, {});
-      byDay.get(d.day)![name] = d.avg || 0;
-    }
-    return Array.from(byDay.entries())
-      .map(([day, values]) => ({ day: day.slice(5), ...values }))
-      .sort((a, b) => a.day.localeCompare(b.day));
-  }, [data]);
+interface RankedItem {
+  label: string;
+  value: number;
+}
 
-  const series = useMemo(() => {
-    const keys = new Set<string>();
-    for (const row of chartData) {
-      for (const k of Object.keys(row)) {
-        if (k !== "day") keys.add(k);
-      }
-    }
-    return Array.from(keys);
-  }, [chartData]);
-
-  if (!chartData.length) return <p className="text-sm text-neutral-500">No network data yet.</p>;
-
+function TopEntitiesPanel({
+  title,
+  accent,
+  items,
+  unit,
+}: {
+  title: string;
+  accent: string;
+  items: RankedItem[];
+  unit?: string;
+}) {
+  const max = items[0]?.value || 1;
   return (
-    <div className="h-72 sm:h-80">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#737373" }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "#737373" }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} width={55} label={{ value: "kB/s", angle: -90, position: "insideLeft", style: { fill: "#737373", fontSize: 11 } }} />
-          <Tooltip content={<CustomTooltip />} />
-          {series.map((s, i) => (
-            <Line key={s} type="monotone" dataKey={s} name={s} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} connectNulls />
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: accent }} />
+        <h3 className="text-xs font-medium text-neutral-300">{title}</h3>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-xs text-neutral-600">No data</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <div key={item.label}>
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[11px] text-neutral-400 truncate mr-2">{item.label}</span>
+                <span className="text-[10px] font-mono text-neutral-500 shrink-0">
+                  {item.value.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  {unit ? ` ${unit}` : ""}
+                </span>
+              </div>
+              <div className="h-1 w-full rounded-full bg-white/5 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.max((item.value / max) * 100, 2)}%`,
+                    backgroundColor: accent,
+                    opacity: 0.7,
+                  }}
+                />
+              </div>
+            </div>
           ))}
-        </LineChart>
-      </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
+}
+
+function useTopEntities(data: AllMetrics) {
+  return useMemo(() => {
+    const topActivity: RankedItem[] = [];
+    const domainTotals = new Map<string, number>();
+    for (const d of data.activity) {
+      if (!d.domain) continue;
+      domainTotals.set(d.domain, (domainTotals.get(d.domain) || 0) + (d.events || 0));
+    }
+    for (const [label, value] of Array.from(domainTotals.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5)) {
+      topActivity.push({ label, value });
+    }
+
+    const topEnergy: RankedItem[] = [];
+    const energyTotals = new Map<string, { sum: number; count: number }>();
+    for (const d of data.energy) {
+      if (!d.entity_id) continue;
+      const name = d.entity_id.split(".").pop() || d.entity_id;
+      const prev = energyTotals.get(name) || { sum: 0, count: 0 };
+      energyTotals.set(name, { sum: prev.sum + (d.avg || 0), count: prev.count + 1 });
+    }
+    for (const [label, { sum, count }] of Array.from(energyTotals.entries())
+      .sort((a, b) => b[1].sum / b[1].count - a[1].sum / a[1].count)
+      .slice(0, 5)) {
+      topEnergy.push({ label, value: Math.round((sum / count) * 10) / 10 });
+    }
+
+    const topPresence: RankedItem[] = [];
+    const presenceTotals = new Map<string, number>();
+    for (const d of data.presence) {
+      if (!d.entity_id) continue;
+      const name = d.entity_id.split(".").pop() || d.entity_id;
+      presenceTotals.set(name, (presenceTotals.get(name) || 0) + (d.transitions || 0));
+    }
+    for (const [label, value] of Array.from(presenceTotals.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5)) {
+      topPresence.push({ label, value });
+    }
+
+    const topNetwork: RankedItem[] = [];
+    const netTotals = new Map<string, { sum: number; count: number }>();
+    for (const d of data.network) {
+      if (!d.entity_id) continue;
+      const name = d.entity_id.split(".").pop() || d.entity_id;
+      const prev = netTotals.get(name) || { sum: 0, count: 0 };
+      netTotals.set(name, { sum: prev.sum + (d.avg || 0), count: prev.count + 1 });
+    }
+    for (const [label, { sum, count }] of Array.from(netTotals.entries())
+      .sort((a, b) => b[1].sum / b[1].count - a[1].sum / a[1].count)
+      .slice(0, 5)) {
+      topNetwork.push({ label, value: Math.round((sum / count) * 10) / 10 });
+    }
+
+    return { topActivity, topEnergy, topPresence, topNetwork };
+  }, [data]);
+}
+
+function useStats(data: AllMetrics) {
+  return useMemo(() => {
+    const totalEvents = data.activity.reduce((s, d) => s + (d.events || 0), 0);
+
+    const entityIds = new Set<string>();
+    for (const d of [...data.energy, ...data.presence, ...data.network]) {
+      if (d.entity_id) entityIds.add(d.entity_id);
+    }
+
+    const dayEvents = new Map<string, number>();
+    for (const d of data.activity) {
+      if (!d.day) continue;
+      dayEvents.set(d.day, (dayEvents.get(d.day) || 0) + (d.events || 0));
+    }
+    let busiestDay = "";
+    let busiestCount = 0;
+    for (const [day, count] of dayEvents) {
+      if (count > busiestCount) {
+        busiestDay = day;
+        busiestCount = count;
+      }
+    }
+
+    const allDays = new Set<string>();
+    for (const list of [data.activity, data.energy, data.presence, data.network]) {
+      for (const d of list) if (d.day) allDays.add(d.day);
+    }
+    const dayCount = allDays.size || 1;
+    const avgDaily = Math.round(totalEvents / dayCount);
+
+    return {
+      totalEvents,
+      uniqueEntities: entityIds.size,
+      busiestDay: busiestDay ? busiestDay.slice(5) : "--",
+      avgDaily,
+    };
+  }, [data]);
 }
 
 export default function AnalyticsPage() {
-  const [metric, setMetric] = useState("activity");
   const [hours, setHours] = useState(168);
-  const [data, setData] = useState<AnalyticsResponse | null>(null);
+  const [metrics, setMetrics] = useState<AllMetrics>({
+    activity: [],
+    energy: [],
+    presence: [],
+    network: [],
+  });
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await getAnalytics(metric, hours);
-      setData(result);
+      const [activity, energy, presence, network] = await Promise.all([
+        getAnalytics("activity", hours),
+        getAnalytics("energy", hours),
+        getAnalytics("presence", hours),
+        getAnalytics("network", hours),
+      ]);
+      setMetrics({
+        activity: activity.data,
+        energy: energy.data,
+        presence: presence.data,
+        network: network.data,
+      });
     } catch {
-      // silently fail
+      /* silently fail */
     } finally {
       setLoading(false);
     }
-  }, [metric, hours]);
+  }, [hours]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  const totalEvents = useMemo(() => {
-    if (!data?.data.length) return 0;
-    return data.data.reduce((s, d) => s + (d.events || d.transitions || d.samples || 0), 0);
-  }, [data]);
+  const stats = useStats(metrics);
+  const { topActivity, topEnergy, topPresence, topNetwork } = useTopEntities(metrics);
 
-  const uniqueDays = useMemo(() => {
-    if (!data?.data.length) return 0;
-    return new Set(data.data.map((d) => d.day)).size;
-  }, [data]);
+  const energyChart = useEntityChart(metrics.energy, "avg");
+  const networkChart = useEntityChart(metrics.network, "avg");
+
+  const hasAnyData =
+    metrics.activity.length > 0 ||
+    metrics.energy.length > 0 ||
+    metrics.presence.length > 0 ||
+    metrics.network.length > 0;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-7xl">
+      {/* Header */}
       <BlurFade delay={0}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -268,95 +411,97 @@ export default function AnalyticsPage() {
               Historical trends and patterns across your smart home
             </p>
           </div>
-          <div className="flex gap-4">
-            <div className="flex gap-1.5">
-              {METRICS.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setMetric(m.id)}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-mono transition-colors",
-                    metric === m.id
-                      ? "bg-cyber-yellow/20 text-cyber-yellow"
-                      : "bg-white/5 text-neutral-400 hover:text-white",
-                  )}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-1.5">
-              {TIME_RANGES.map((r) => (
-                <button
-                  key={r.hours}
-                  onClick={() => setHours(r.hours)}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-mono transition-colors",
-                    hours === r.hours
-                      ? "bg-white/15 text-white"
-                      : "bg-white/5 text-neutral-400 hover:text-white",
-                  )}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
+          <div className="flex gap-1.5">
+            {TIME_RANGES.map((r) => (
+              <button
+                key={r.hours}
+                onClick={() => setHours(r.hours)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-mono transition-colors",
+                  hours === r.hours
+                    ? "bg-cyber-yellow/20 text-cyber-yellow"
+                    : "bg-white/5 text-neutral-400 hover:text-white",
+                )}
+              >
+                {r.label}
+              </button>
+            ))}
           </div>
         </div>
       </BlurFade>
 
-      <BlurFade delay={0.05}>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-xs text-neutral-500">Total Data Points</p>
-            <p className="mt-1 text-2xl font-bold font-mono text-cyber-yellow">
-              {totalEvents.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-xs text-neutral-500">Days Covered</p>
-            <p className="mt-1 text-2xl font-bold font-mono text-green-400">
-              {uniqueDays}
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-xs text-neutral-500">Metric</p>
-            <p className="mt-1 text-2xl font-bold font-mono text-blue-400 capitalize">
-              {metric}
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-xs text-neutral-500">Time Range</p>
-            <p className="mt-1 text-2xl font-bold font-mono text-amber-400">
-              {hours / 24}d
-            </p>
-          </div>
+      {loading && !hasAnyData ? (
+        <div className="flex items-center justify-center py-20 text-neutral-500 animate-pulse">
+          Loading analytics...
         </div>
-      </BlurFade>
+      ) : !hasAnyData ? (
+        <div className="flex items-center justify-center py-20 text-neutral-500">
+          No data available for this time range. Data accumulates as the backend runs.
+        </div>
+      ) : (
+        <>
+          {/* Stat cards */}
+          <BlurFade delay={0.05}>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-xs text-neutral-500">Total Events</p>
+                <p className="mt-1 text-2xl font-bold font-mono text-cyber-yellow">
+                  {stats.totalEvents.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-xs text-neutral-500">Unique Entities</p>
+                <p className="mt-1 text-2xl font-bold font-mono text-blue-400">
+                  {stats.uniqueEntities}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-xs text-neutral-500">Most Active Day</p>
+                <p className="mt-1 text-2xl font-bold font-mono text-green-400">
+                  {stats.busiestDay}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-xs text-neutral-500">Avg Daily Events</p>
+                <p className="mt-1 text-2xl font-bold font-mono text-amber-400">
+                  {stats.avgDaily.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </BlurFade>
 
-      <BlurFade delay={0.1}>
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-          <h2 className="mb-4 text-sm font-medium text-neutral-300 capitalize">
-            {metric} Over Time
-          </h2>
-          {loading && !data ? (
-            <div className="flex items-center justify-center py-20 text-neutral-500 animate-pulse">
-              Loading analytics...
+          {/* 2x2 chart grid */}
+          <BlurFade delay={0.1}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <ChartCard title="Activity" accent={SECTION_COLORS.activity} count={metrics.activity.length}>
+                <ActivityChartCard data={metrics.activity} />
+              </ChartCard>
+              <ChartCard title="Energy" accent={SECTION_COLORS.energy} count={metrics.energy.length}>
+                <GradientAreaChart data={energyChart.chartData} series={energyChart.series} id="energy" />
+              </ChartCard>
+              <ChartCard title="Presence" accent={SECTION_COLORS.presence} count={metrics.presence.length}>
+                <PresenceChartCard data={metrics.presence} />
+              </ChartCard>
+              <ChartCard title="Network" accent={SECTION_COLORS.network} count={metrics.network.length}>
+                <GradientAreaChart data={networkChart.chartData} series={networkChart.series} id="network" />
+              </ChartCard>
             </div>
-          ) : data?.data.length ? (
-            <>
-              {metric === "activity" && <ActivityChart data={data.data} />}
-              {metric === "energy" && <EnergyChart data={data.data} />}
-              {metric === "presence" && <PresenceChart data={data.data} />}
-              {metric === "network" && <NetworkChart data={data.data} />}
-            </>
-          ) : (
-            <div className="flex items-center justify-center py-20 text-neutral-500">
-              No data available for this time range. Data accumulates as the backend runs.
+          </BlurFade>
+
+          {/* Top entities breakdown */}
+          <BlurFade delay={0.15}>
+            <div>
+              <h2 className="text-sm font-medium text-neutral-300 mb-3">Top Entities</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <TopEntitiesPanel title="Activity" accent={SECTION_COLORS.activity} items={topActivity} unit="events" />
+                <TopEntitiesPanel title="Energy" accent={SECTION_COLORS.energy} items={topEnergy} unit="avg" />
+                <TopEntitiesPanel title="Presence" accent={SECTION_COLORS.presence} items={topPresence} unit="trans." />
+                <TopEntitiesPanel title="Network" accent={SECTION_COLORS.network} items={topNetwork} unit="kB/s" />
+              </div>
             </div>
-          )}
-        </div>
-      </BlurFade>
+          </BlurFade>
+        </>
+      )}
     </div>
   );
 }

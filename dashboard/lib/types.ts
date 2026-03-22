@@ -584,6 +584,55 @@ export interface MediaSearchResponse {
   jellyfin: MediaSearchResultJellyfin[];
 }
 
+// --- Server / Tunnel types ---
+
+export interface ServerContainer {
+  name: string;
+  image: string;
+  status: string;
+  health: string | null;
+  ports: Record<string, number>;
+  started_at: string;
+  uptime: string;
+}
+
+export interface ServerContainersResponse {
+  containers: ServerContainer[];
+}
+
+export interface TunnelRoute {
+  hostname: string;
+  service: string;
+}
+
+export interface TunnelRoutesResponse {
+  routes: TunnelRoute[];
+  domain: string;
+}
+
+// --- Backup types ---
+
+export interface BackupArchive {
+  name: string;
+  size: string;
+  date: string;
+}
+
+export interface BackupStatus {
+  last_updated: string;
+  local: {
+    last_run: string | null;
+    archives: BackupArchive[];
+  };
+  gdrive_mirror: {
+    last_sync: string | null;
+    size: string | null;
+  };
+  gdrive_snapshots: {
+    snapshots: BackupArchive[];
+  };
+}
+
 // --- Health data types ---
 
 export interface HealthSensorReading {

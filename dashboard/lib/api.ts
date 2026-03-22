@@ -34,6 +34,9 @@ import type {
   JellyfinLibraryResponse,
   JellyseerrRequestsResponse,
   MediaSearchResponse,
+  ServerContainersResponse,
+  TunnelRoutesResponse,
+  BackupStatus,
 } from "./types";
 
 const BASE_URL =
@@ -469,4 +472,36 @@ export async function createMediaRequest(
     method: "POST",
     body: JSON.stringify({ media_id: mediaId, media_type: mediaType }),
   });
+}
+
+// --- Server / Tunnel ---
+
+export async function getServerContainers(): Promise<ServerContainersResponse> {
+  return fetchJSON<ServerContainersResponse>("/api/server/containers");
+}
+
+export async function getServerTunnel(): Promise<TunnelRoutesResponse> {
+  return fetchJSON<TunnelRoutesResponse>("/api/server/tunnel");
+}
+
+export async function addTunnelRoute(
+  subdomain: string,
+  service: string,
+): Promise<{ status: string; hostname: string; service: string }> {
+  return fetchJSON("/api/server/tunnel", {
+    method: "POST",
+    body: JSON.stringify({ subdomain, service }),
+  });
+}
+
+export async function removeTunnelRoute(
+  subdomain: string,
+): Promise<{ status: string; hostname: string }> {
+  return fetchJSON(`/api/server/tunnel/${encodeURIComponent(subdomain)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getServerBackups(): Promise<BackupStatus | { status: "no_data" }> {
+  return fetchJSON("/api/server/backups");
 }
