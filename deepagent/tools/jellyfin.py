@@ -1,16 +1,13 @@
-"""
-Jellyfin API tools for media library browsing, search, and playback control.
-"""
+"""Jellyfin API tools for media library browsing, search, and playback info."""
 
 import json
 import logging
 
 import aiohttp
-from langchain_core.tools import tool
 
 import config
 
-log = logging.getLogger("homebot.tools.jellyfin")
+log = logging.getLogger("deepagent.tools.jellyfin")
 
 
 def _headers() -> dict:
@@ -21,7 +18,6 @@ _user_id_cache: str | None = None
 
 
 async def _get_user_id() -> str | None:
-    """Discover the first Jellyfin user ID (cached after first call)."""
     global _user_id_cache
     if _user_id_cache:
         return _user_id_cache
@@ -47,7 +43,6 @@ def _format_ticks(ticks: int | None) -> str:
     return f"{m}m{s:02d}s"
 
 
-@tool
 async def jellyfin_search(query: str, media_type: str = "") -> str:
     """Search the Jellyfin media library.
     query: Search term (movie title, show name, artist, etc.)
@@ -84,7 +79,6 @@ async def jellyfin_search(query: str, media_type: str = "") -> str:
             return json.dumps({"results": summary, "count": len(summary)})
 
 
-@tool
 async def jellyfin_get_libraries() -> str:
     """List all Jellyfin media libraries (movies, TV, music, etc.)."""
     url = f"{config.JELLYFIN_URL}/Library/VirtualFolders"
@@ -105,7 +99,6 @@ async def jellyfin_get_libraries() -> str:
             return json.dumps({"libraries": summary, "count": len(summary)})
 
 
-@tool
 async def jellyfin_get_latest(library_id: str = "", limit: int = 10) -> str:
     """Get recently added items from Jellyfin.
     library_id: Library/parent ID to filter (empty = all libraries)
@@ -137,7 +130,6 @@ async def jellyfin_get_latest(library_id: str = "", limit: int = 10) -> str:
             return json.dumps({"latest": summary, "count": len(summary)})
 
 
-@tool
 async def jellyfin_get_sessions() -> str:
     """Get active Jellyfin playback sessions (who is watching what)."""
     url = f"{config.JELLYFIN_URL}/Sessions"
@@ -165,7 +157,6 @@ async def jellyfin_get_sessions() -> str:
             return json.dumps({"sessions": active, "count": len(active)})
 
 
-@tool
 async def jellyfin_system_info() -> str:
     """Get Jellyfin server system information (version, OS, etc.)."""
     url = f"{config.JELLYFIN_URL}/System/Info"
@@ -183,7 +174,6 @@ async def jellyfin_system_info() -> str:
             })
 
 
-@tool
 async def jellyfin_playback_control(session_id: str, command: str) -> str:
     """Control playback on an active Jellyfin session (play, pause, stop, next, previous).
     session_id: Session ID from jellyfin_get_sessions (use the 'id' field)
@@ -198,7 +188,6 @@ async def jellyfin_playback_control(session_id: str, command: str) -> str:
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def jellyfin_mark_played(item_id: str, played: bool = True) -> str:
     """Mark a Jellyfin item as watched or unwatched.
     item_id: Jellyfin item ID (from jellyfin_search results)
@@ -224,7 +213,6 @@ async def jellyfin_mark_played(item_id: str, played: bool = True) -> str:
                 return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def jellyfin_get_item_details(item_id: str) -> str:
     """Get detailed information about a specific Jellyfin item (movie, episode, album).
     item_id: Jellyfin item ID
@@ -257,7 +245,6 @@ async def jellyfin_get_item_details(item_id: str) -> str:
             })
 
 
-@tool
 async def jellyfin_get_resume() -> str:
     """Get the 'Continue Watching' list from Jellyfin (items with partial progress)."""
     user_id = await _get_user_id()
@@ -286,7 +273,7 @@ async def jellyfin_get_resume() -> str:
             return json.dumps({"resume": summary, "count": len(summary)})
 
 
-def create_jellyfin_tools():
+def get_jellyfin_tools():
     return [
         jellyfin_search,
         jellyfin_get_libraries,

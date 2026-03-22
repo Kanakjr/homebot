@@ -1,23 +1,19 @@
-"""
-Prowlarr API tools for indexer management and torrent/usenet search.
-"""
+"""Prowlarr API tools for indexer management and torrent/usenet search."""
 
 import json
 import logging
 
 import aiohttp
-from langchain_core.tools import tool
 
 import config
 
-log = logging.getLogger("homebot.tools.prowlarr")
+log = logging.getLogger("deepagent.tools.prowlarr")
 
 
 def _headers() -> dict:
     return {"X-Api-Key": config.PROWLARR_API_KEY, "Content-Type": "application/json"}
 
 
-@tool
 async def prowlarr_search(query: str, indexer_ids: str = "", categories: str = "") -> str:
     """Search across all Prowlarr indexers for torrents/usenet releases.
     Returns results with download_url (magnet link or torrent URL) ready for transmission_add_torrent.
@@ -55,7 +51,6 @@ async def prowlarr_search(query: str, indexer_ids: str = "", categories: str = "
             return json.dumps({"results": summary, "count": len(summary)})
 
 
-@tool
 async def prowlarr_get_indexers() -> str:
     """List all configured indexers in Prowlarr with their status."""
     url = f"{config.PROWLARR_URL}/api/v1/indexer"
@@ -77,7 +72,6 @@ async def prowlarr_get_indexers() -> str:
             return json.dumps({"indexers": summary, "count": len(summary)})
 
 
-@tool
 async def prowlarr_get_indexer_stats() -> str:
     """Get Prowlarr indexer statistics (queries, grabs, failures)."""
     url = f"{config.PROWLARR_URL}/api/v1/indexerstats"
@@ -99,7 +93,6 @@ async def prowlarr_get_indexer_stats() -> str:
             return json.dumps({"stats": summary, "count": len(summary)})
 
 
-@tool
 async def prowlarr_grab_release(guid: str, indexer_id: int) -> str:
     """Grab/download a specific release from Prowlarr search results.
     guid: Release GUID from prowlarr_search results (the download_url or guid field)
@@ -115,7 +108,6 @@ async def prowlarr_grab_release(guid: str, indexer_id: int) -> str:
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def prowlarr_get_health() -> str:
     """Check Prowlarr system health (indexer issues, update status, disk space warnings)."""
     url = f"{config.PROWLARR_URL}/api/v1/health"
@@ -135,7 +127,7 @@ async def prowlarr_get_health() -> str:
             return json.dumps({"status": "issues_found", "issues": summary, "count": len(summary)})
 
 
-def create_prowlarr_tools():
+def get_prowlarr_tools():
     return [
         prowlarr_search, prowlarr_get_indexers, prowlarr_get_indexer_stats,
         prowlarr_grab_release, prowlarr_get_health,

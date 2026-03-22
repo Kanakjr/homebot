@@ -162,7 +162,7 @@ export default function ChatWidget({
   compact = false,
   onConversationUpdate,
 }: ChatWidgetProps) {
-  const { messages, isStreaming, currentEvents, historyLoaded, send, stop, clear } =
+  const { messages, isStreaming, currentEvents, send, stop, clear } =
     useChat(chatId);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -203,7 +203,9 @@ export default function ChatWidget({
       )}
     >
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
-        <h3 className="text-sm font-mono text-neutral-300">AI Chat</h3>
+        <h3 className="text-sm font-mono text-neutral-300">
+          AI Chat
+        </h3>
         <button
           onClick={handleClear}
           className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
@@ -213,14 +215,9 @@ export default function ChatWidget({
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-        {!historyLoaded && (
-          <p className="text-sm text-neutral-500 text-center py-8 animate-pulse">
-            Loading history...
-          </p>
-        )}
-        {historyLoaded && messages.length === 0 && !isStreaming && (
+        {messages.length === 0 && !isStreaming && (
           <p className="text-sm text-neutral-500 text-center py-8">
-            Ask HomeBotAI anything about your home.
+            Ask HomeBotAI anything -- control devices, manage media, check your home.
           </p>
         )}
 

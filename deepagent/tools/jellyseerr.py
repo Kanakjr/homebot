@@ -1,23 +1,19 @@
-"""
-Jellyseerr API tools for media requests.
-"""
+"""Jellyseerr API tools for media requests."""
 
 import json
 import logging
 
 import aiohttp
-from langchain_core.tools import tool
 
 import config
 
-log = logging.getLogger("homebot.tools.jellyseerr")
+log = logging.getLogger("deepagent.tools.jellyseerr")
 
 
 def _headers() -> dict:
     return {"X-Api-Key": config.JELLYSEERR_API_KEY, "Content-Type": "application/json"}
 
 
-@tool
 async def jellyseerr_search(query: str) -> str:
     """Search for movies and TV shows on Jellyseerr.
     query: Movie or show name to search for
@@ -39,7 +35,6 @@ async def jellyseerr_search(query: str) -> str:
             return json.dumps({"error": f"HTTP {resp.status}"})
 
 
-@tool
 async def jellyseerr_request(media_id: int, media_type: str) -> str:
     """Submit a media request on Jellyseerr for a movie or TV show.
     media_id: Media ID from jellyseerr_search results
@@ -57,7 +52,6 @@ async def jellyseerr_request(media_id: int, media_type: str) -> str:
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def jellyseerr_get_requests(status: str = "", count: int = 20) -> str:
     """List media requests on Jellyseerr.
     status: Filter by status: pending, approved, declined, available, processing (empty = all)
@@ -85,7 +79,6 @@ async def jellyseerr_get_requests(status: str = "", count: int = 20) -> str:
             return json.dumps({"requests": summary, "count": len(summary), "total": data.get("pageInfo", {}).get("results")})
 
 
-@tool
 async def jellyseerr_approve_decline(request_id: int, action: str) -> str:
     """Approve or decline a media request on Jellyseerr.
     request_id: Request ID (from jellyseerr_get_requests)
@@ -102,7 +95,6 @@ async def jellyseerr_approve_decline(request_id: int, action: str) -> str:
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def jellyseerr_get_request_status(request_id: int) -> str:
     """Get the current status of a specific Jellyseerr media request.
     request_id: Request ID
@@ -125,7 +117,7 @@ async def jellyseerr_get_request_status(request_id: int) -> str:
             })
 
 
-def create_jellyseerr_tools():
+def get_jellyseerr_tools():
     return [
         jellyseerr_search,
         jellyseerr_request,

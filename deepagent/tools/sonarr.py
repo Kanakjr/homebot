@@ -1,23 +1,19 @@
-"""
-Sonarr API tools for TV show management.
-"""
+"""Sonarr API tools for TV show management."""
 
 import json
 import logging
 
 import aiohttp
-from langchain_core.tools import tool
 
 import config
 
-log = logging.getLogger("homebot.tools.sonarr")
+log = logging.getLogger("deepagent.tools.sonarr")
 
 
 def _headers() -> dict:
     return {"X-Api-Key": config.SONARR_API_KEY, "Content-Type": "application/json"}
 
 
-@tool
 async def sonarr_search(query: str) -> str:
     """Search for TV shows on Sonarr.
     query: Show name to search for
@@ -34,7 +30,6 @@ async def sonarr_search(query: str) -> str:
             return json.dumps({"error": f"HTTP {resp.status}"})
 
 
-@tool
 async def sonarr_add_series(tvdb_id: int, quality_profile_id: int = 1, root_folder_path: str = "/data/tv") -> str:
     """Add a TV series to Sonarr for monitoring and automatic downloading.
     tvdb_id: TVDB ID of the show (from sonarr_search results)
@@ -65,7 +60,6 @@ async def sonarr_add_series(tvdb_id: int, quality_profile_id: int = 1, root_fold
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def sonarr_get_queue() -> str:
     """Get the current Sonarr download queue."""
     url = f"{config.SONARR_URL}/api/v3/queue"
@@ -81,7 +75,6 @@ async def sonarr_get_queue() -> str:
             return json.dumps({"error": f"HTTP {resp.status}"})
 
 
-@tool
 async def sonarr_get_series() -> str:
     """List all monitored TV series in Sonarr with episode counts and status."""
     url = f"{config.SONARR_URL}/api/v3/series"
@@ -104,7 +97,6 @@ async def sonarr_get_series() -> str:
             return json.dumps({"series": summary, "count": len(summary)})
 
 
-@tool
 async def sonarr_get_calendar(start_date: str = "", end_date: str = "") -> str:
     """Get upcoming TV episodes from Sonarr calendar.
     start_date: Start date in YYYY-MM-DD format (default: today)
@@ -134,7 +126,6 @@ async def sonarr_get_calendar(start_date: str = "", end_date: str = "") -> str:
             return json.dumps({"upcoming": summary, "count": len(summary)})
 
 
-@tool
 async def sonarr_delete_series(series_id: int, delete_files: bool = False) -> str:
     """Delete a TV series from Sonarr.
     series_id: Sonarr series ID (from sonarr_get_series)
@@ -150,7 +141,6 @@ async def sonarr_delete_series(series_id: int, delete_files: bool = False) -> st
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def sonarr_episode_search(series_id: int) -> str:
     """Trigger a search for all missing episodes of a series in Sonarr.
     series_id: Sonarr series ID
@@ -166,7 +156,6 @@ async def sonarr_episode_search(series_id: int) -> str:
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def sonarr_get_history(limit: int = 20) -> str:
     """Get recent Sonarr download history.
     limit: Number of records to return (default 20)
@@ -192,7 +181,7 @@ async def sonarr_get_history(limit: int = 20) -> str:
             return json.dumps({"history": summary, "count": len(summary)})
 
 
-def create_sonarr_tools():
+def get_sonarr_tools():
     return [
         sonarr_search, sonarr_add_series, sonarr_get_queue,
         sonarr_get_series, sonarr_get_calendar, sonarr_delete_series,

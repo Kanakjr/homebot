@@ -1,23 +1,19 @@
-"""
-Radarr API tools for movie management.
-"""
+"""Radarr API tools for movie management."""
 
 import json
 import logging
 
 import aiohttp
-from langchain_core.tools import tool
 
 import config
 
-log = logging.getLogger("homebot.tools.radarr")
+log = logging.getLogger("deepagent.tools.radarr")
 
 
 def _headers() -> dict:
     return {"X-Api-Key": config.RADARR_API_KEY, "Content-Type": "application/json"}
 
 
-@tool
 async def radarr_search(query: str) -> str:
     """Search for movies on Radarr.
     query: Movie name to search for
@@ -35,7 +31,6 @@ async def radarr_search(query: str) -> str:
             return json.dumps({"error": f"HTTP {resp.status}"})
 
 
-@tool
 async def radarr_add_movie(tmdb_id: int, quality_profile_id: int = 1, root_folder_path: str = "/data/movies") -> str:
     """Add a movie to Radarr for monitoring and automatic downloading.
     tmdb_id: TMDB ID of the movie (from radarr_search results)
@@ -65,7 +60,6 @@ async def radarr_add_movie(tmdb_id: int, quality_profile_id: int = 1, root_folde
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def radarr_get_queue() -> str:
     """Get the current Radarr download queue."""
     url = f"{config.RADARR_URL}/api/v3/queue"
@@ -81,7 +75,6 @@ async def radarr_get_queue() -> str:
             return json.dumps({"error": f"HTTP {resp.status}"})
 
 
-@tool
 async def radarr_get_movies() -> str:
     """List all monitored movies in Radarr with download status."""
     url = f"{config.RADARR_URL}/api/v3/movie"
@@ -103,7 +96,6 @@ async def radarr_get_movies() -> str:
             return json.dumps({"movies": summary, "count": len(summary)})
 
 
-@tool
 async def radarr_get_calendar(start_date: str = "", end_date: str = "") -> str:
     """Get upcoming movie releases from Radarr calendar.
     start_date: Start date in YYYY-MM-DD format (default: today)
@@ -133,7 +125,6 @@ async def radarr_get_calendar(start_date: str = "", end_date: str = "") -> str:
             return json.dumps({"upcoming": summary, "count": len(summary)})
 
 
-@tool
 async def radarr_delete_movie(movie_id: int, delete_files: bool = False) -> str:
     """Delete a movie from Radarr.
     movie_id: Radarr movie ID (from radarr_get_movies)
@@ -149,7 +140,6 @@ async def radarr_delete_movie(movie_id: int, delete_files: bool = False) -> str:
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def radarr_movie_search(movie_id: int) -> str:
     """Trigger a manual search for a specific movie in Radarr.
     movie_id: Radarr movie ID
@@ -165,7 +155,6 @@ async def radarr_movie_search(movie_id: int) -> str:
             return json.dumps({"error": f"HTTP {resp.status}", "detail": text[:300]})
 
 
-@tool
 async def radarr_get_history(limit: int = 20) -> str:
     """Get recent Radarr download history.
     limit: Number of records to return (default 20)
@@ -189,7 +178,7 @@ async def radarr_get_history(limit: int = 20) -> str:
             return json.dumps({"history": summary, "count": len(summary)})
 
 
-def create_radarr_tools():
+def get_radarr_tools():
     return [
         radarr_search, radarr_add_movie, radarr_get_queue,
         radarr_get_movies, radarr_get_calendar, radarr_delete_movie,

@@ -38,6 +38,8 @@ import type {
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const DEEP_AGENT_URL =
+  process.env.NEXT_PUBLIC_DEEP_AGENT_URL ?? "http://localhost:8322";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 
 function authHeaders(extra?: HeadersInit): HeadersInit {
@@ -82,6 +84,53 @@ export async function* streamChatEvents(
 
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${await res.text()}`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    let eventType = "";
+    for (const line of lines) {
+      if (line.startsWith("event: ")) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith("data: ")) {
+        const data = line.slice(6);
+        if (eventType) {
+          yield { type: eventType, data };
+          eventType = "";
+        }
+      }
+    }
+  }
+}
+
+/**
+ * POST-based SSE stream to the Deep Agent service. Same event format as standard backend.
+ */
+export async function* streamDeepAgentEvents(
+  req: { message: string; thread_id?: string },
+  signal?: AbortSignal
+): AsyncGenerator<{ type: string; data: string }> {
+  const res = await fetch(`${DEEP_AGENT_URL}/api/chat/stream`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(req),
+    signal,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Deep Agent API ${res.status}: ${await res.text()}`);
   }
 
   const reader = res.body?.getReader();

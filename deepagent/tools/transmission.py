@@ -1,18 +1,17 @@
-"""
-Transmission RPC tools for torrent management.
-"""
+"""Transmission RPC tools for torrent management."""
 
 import json
 import logging
 
 import aiohttp
-from langchain_core.tools import tool
 
 import config
 
-log = logging.getLogger("homebot.tools.transmission")
+log = logging.getLogger("deepagent.tools.transmission")
 
-TRANSMISSION_RPC = f"{config.TRANSMISSION_URL}/transmission/rpc"
+
+def _rpc_url() -> str:
+    return f"{config.TRANSMISSION_URL}/transmission/rpc"
 
 
 async def _rpc(method: str, arguments: dict | None = None) -> dict:
@@ -22,11 +21,11 @@ async def _rpc(method: str, arguments: dict | None = None) -> dict:
         payload["arguments"] = arguments
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(TRANSMISSION_RPC, headers=headers, json=payload) as resp:
+        async with session.post(_rpc_url(), headers=headers, json=payload) as resp:
             if resp.status == 409:
                 csrf = resp.headers.get("X-Transmission-Session-Id", "")
                 headers["X-Transmission-Session-Id"] = csrf
-                async with session.post(TRANSMISSION_RPC, headers=headers, json=payload) as resp2:
+                async with session.post(_rpc_url(), headers=headers, json=payload) as resp2:
                     if resp2.status == 200:
                         return await resp2.json()
                     return {"result": "error", "status": resp2.status}
@@ -48,7 +47,6 @@ def _format_speed(bps: int) -> str:
     return f"{bps / 1024 / 1024:.1f} MB/s"
 
 
-@tool
 async def transmission_get_torrents() -> str:
     """List all torrents in Transmission with progress, speed, and status."""
     result = await _rpc("torrent-get", {
@@ -64,7 +62,6 @@ async def transmission_get_torrents() -> str:
     return json.dumps({"torrents": summary, "count": len(summary)})
 
 
-@tool
 async def transmission_add_torrent(url: str) -> str:
     """Add a torrent to Transmission by URL or magnet link.
     url: Torrent URL or magnet link
@@ -79,7 +76,6 @@ async def transmission_add_torrent(url: str) -> str:
     return json.dumps({"status": "error", "detail": str(result)[:300]})
 
 
-@tool
 async def transmission_pause_resume(torrent_id: int, action: str) -> str:
     """Pause or resume a torrent in Transmission.
     torrent_id: Torrent ID
@@ -90,7 +86,6 @@ async def transmission_pause_resume(torrent_id: int, action: str) -> str:
     return json.dumps({"status": "ok", "action": action, "torrent_id": torrent_id, "result": result.get("result")})
 
 
-@tool
 async def transmission_remove_torrent(torrent_id: int, delete_data: bool = False) -> str:
     """Remove a torrent from Transmission.
     torrent_id: Torrent ID to remove
@@ -108,7 +103,6 @@ async def transmission_remove_torrent(torrent_id: int, delete_data: bool = False
     })
 
 
-@tool
 async def transmission_set_alt_speed(enabled: bool, down_kbps: int = 0, up_kbps: int = 0) -> str:
     """Enable or disable Transmission alt-speed (turtle) mode for bandwidth limiting.
     enabled: True to enable speed limits, False to disable
@@ -130,7 +124,6 @@ async def transmission_set_alt_speed(enabled: bool, down_kbps: int = 0, up_kbps:
     })
 
 
-@tool
 async def transmission_get_session_stats() -> str:
     """Get Transmission session and cumulative transfer statistics."""
     result = await _rpc("session-stats")
@@ -153,7 +146,6 @@ async def transmission_get_session_stats() -> str:
     })
 
 
-@tool
 async def transmission_set_priority(torrent_id: int, priority: str) -> str:
     """Set the bandwidth priority of a torrent in Transmission.
     torrent_id: Torrent ID
@@ -165,7 +157,6 @@ async def transmission_set_priority(torrent_id: int, priority: str) -> str:
     return json.dumps({"status": "ok", "torrent_id": torrent_id, "priority": priority, "result": result.get("result")})
 
 
-@tool
 async def transmission_get_free_space(path: str = "/data") -> str:
     """Check free disk space available to Transmission.
     path: Directory path to check (default: /data)
@@ -181,7 +172,7 @@ async def transmission_get_free_space(path: str = "/data") -> str:
     })
 
 
-def create_transmission_tools():
+def get_transmission_tools():
     return [
         transmission_get_torrents,
         transmission_add_torrent,

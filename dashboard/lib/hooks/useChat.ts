@@ -1,35 +1,17 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { streamChatEvents, getSnapshotUrl, getHistory, clearHistory } from "@/lib/api";
+import { streamDeepAgentEvents, getSnapshotUrl } from "@/lib/api";
 import type { ChatMessage, StreamEvent, ToolCallInfo } from "@/lib/types";
 
 export function useChat(chatId: number) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentEvents, setCurrentEvents] = useState<StreamEvent[]>([]);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
     setMessages([]);
-    setHistoryLoaded(false);
-
-    getHistory(chatId).then((data) => {
-      if (cancelled) return;
-      const restored: ChatMessage[] = data.messages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.text,
-        timestamp: new Date(m.ts + "Z").getTime(),
-      }));
-      setMessages(restored);
-      setHistoryLoaded(true);
-    }).catch(() => {
-      if (!cancelled) setHistoryLoaded(true);
-    });
-
-    return () => { cancelled = true; };
   }, [chatId]);
 
   const send = useCallback(
@@ -53,10 +35,12 @@ export function useChat(chatId: number) {
       let responseText = "";
 
       try {
-        for await (const raw of streamChatEvents(
-          { message: text, chat_id: chatId },
+        const stream = streamDeepAgentEvents(
+          { message: text, thread_id: String(chatId) },
           controller.signal
-        )) {
+        );
+
+        for await (const raw of stream) {
           if (raw.type === "done") break;
 
           const event: StreamEvent = JSON.parse(raw.data);
@@ -111,11 +95,10 @@ export function useChat(chatId: number) {
     setIsStreaming(false);
   }, []);
 
-  const clear = useCallback(async () => {
-    await clearHistory(chatId).catch(() => {});
+  const clear = useCallback(() => {
     setMessages([]);
     setCurrentEvents([]);
-  }, [chatId]);
+  }, []);
 
-  return { messages, isStreaming, currentEvents, historyLoaded, send, stop, clear };
+  return { messages, isStreaming, currentEvents, send, stop, clear };
 }
