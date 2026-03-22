@@ -203,22 +203,40 @@ async def chat_stream(req: ChatRequest):
 async def _summarize_tool_results(
     user_question: str, tool_results: list[str], *, model: str | None = None,
 ) -> str:
-    """Quick LLM call to summarize tool results when the agent returns empty."""
+    """Quick LLM call to summarize tool results when the agent returns empty.
+
+    Uses the same provider as *model* (or config.MODEL): ``ollama:...`` vs ``google_genai:...``.
+    """
+    effective = model or config.MODEL
+    combined = "\n---\n".join(tool_results[:5])
+    text_prompt = (
+        f"The user asked: {user_question}\n\n"
+        f"Here are the tool results:\n{combined}\n\n"
+        "Provide a concise, friendly summary answering the user's question."
+    )
     try:
+        if effective.startswith("ollama:"):
+            from langchain_ollama import ChatOllama
+
+            ollama_name = effective.split(":", 1)[1]
+            llm = ChatOllama(
+                base_url=config.OLLAMA_URL,
+                model=ollama_name,
+                temperature=0.3,
+            )
+            from langchain_core.messages import HumanMessage
+
+            resp = await llm.ainvoke([HumanMessage(content=text_prompt)])
+            return _extract_text(resp.content) or "I found some results but couldn't summarize them."
+
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        effective = model or config.MODEL
-        model_name = effective.split(":", 1)[-1] if ":" in effective else effective
+        # google_genai:gemini-... or bare gemini id
+        gemini_name = effective.split(":", 1)[-1] if ":" in effective else effective
         llm = ChatGoogleGenerativeAI(
-            model=model_name, google_api_key=config.GOOGLE_API_KEY
+            model=gemini_name, google_api_key=config.GOOGLE_API_KEY
         )
-        combined = "\n---\n".join(tool_results[:5])
-        prompt = (
-            f"The user asked: {user_question}\n\n"
-            f"Here are the tool results:\n{combined}\n\n"
-            "Provide a concise, friendly summary answering the user's question."
-        )
-        resp = await llm.ainvoke(prompt)
+        resp = await llm.ainvoke(text_prompt)
         return _extract_text(resp.content) or "I found some results but couldn't summarize them."
     except Exception:
         log.exception("Fallback summarization failed")

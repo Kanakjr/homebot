@@ -126,7 +126,8 @@ Configure notification rules (3D printer done, battery low, welcome/left home, D
 - [docs/AI_DASHBOARD.md](docs/AI_DASHBOARD.md) -- AI-customizable dashboard: widget types, editor usage, config schema
 - [docs/SMART_FEATURES.md](docs/SMART_FEATURES.md) -- Presence tracking, smart summaries, AI digests, proactive notifications
 - [docs/ROADMAP.md](docs/ROADMAP.md) -- Future roadmap: 15 planned features with priority, effort, and implementation details
-- [docs/LLM_BENCHMARK_RESULTS.md](docs/LLM_BENCHMARK_RESULTS.md) -- Aggregated model benchmarks (task quality and tool calling); regenerate from `tests/llm/results/*.json`
+- [docs/LLM_BENCHMARK_RESULTS.md](docs/LLM_BENCHMARK_RESULTS.md) -- Model benchmarks (task quality and tool calling), updated from `tests/llm/results/*.json`
+- [docs/LLM_TESTS_PLAN_VERIFICATION.md](docs/LLM_TESTS_PLAN_VERIFICATION.md) -- Checklist vs LLM tests / model-selection plan
 
 ## Project Structure
 
@@ -253,12 +254,11 @@ python tests/test_agent.py
 
 ### LLM benchmarks
 
-Runs write JSON under `tests/llm/results/`. Aggregate into `docs/LLM_BENCHMARK_RESULTS.md`:
+Runs write JSON under `tests/llm/results/`. Update `docs/LLM_BENCHMARK_RESULTS.md` from the latest `benchmark_*.json` / `tool_calling_*.json` `summary` and per-task results when you want published numbers to match a new run.
 
 ```bash
 python tests/llm/test_benchmark.py          # tasks from tests/llm/tasks.py
-python tests/llm/test_tool_calling.py     # bind_tools scenarios
-python tests/llm/aggregate_benchmark_doc.py
+python tests/llm/test_tool_calling.py       # bind_tools scenarios
 ```
 
 ## API Reference
