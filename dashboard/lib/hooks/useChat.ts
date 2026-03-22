@@ -2,17 +2,31 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { streamDeepAgentEvents, getSnapshotUrl } from "@/lib/api";
+import { loadMessages, saveMessages } from "@/lib/hooks/useChatSessions";
 import type { ChatMessage, StreamEvent, ToolCallInfo } from "@/lib/types";
 
-export function useChat(chatId: number) {
+export function useChat(
+  chatId: number,
+  onMessagesChange?: (chatId: number, messages: ChatMessage[]) => void,
+) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentEvents, setCurrentEvents] = useState<StreamEvent[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    setMessages([]);
+    const saved = loadMessages(chatId);
+    setMessages(saved);
   }, [chatId]);
+
+  const onChangeCb = useRef(onMessagesChange);
+  onChangeCb.current = onMessagesChange;
+
+  useEffect(() => {
+    if (chatId === 0) return;
+    saveMessages(chatId, messages);
+    onChangeCb.current?.(chatId, messages);
+  }, [chatId, messages]);
 
   const send = useCallback(
     async (text: string) => {
@@ -98,7 +112,8 @@ export function useChat(chatId: number) {
   const clear = useCallback(() => {
     setMessages([]);
     setCurrentEvents([]);
-  }, []);
+    if (chatId !== 0) saveMessages(chatId, []);
+  }, [chatId]);
 
   return { messages, isStreaming, currentEvents, send, stop, clear };
 }

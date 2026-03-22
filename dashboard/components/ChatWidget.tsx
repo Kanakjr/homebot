@@ -154,6 +154,7 @@ interface ChatWidgetProps {
   chatId?: number;
   compact?: boolean;
   onConversationUpdate?: () => void;
+  onMessagesChange?: (chatId: number, messages: import("@/lib/types").ChatMessage[]) => void;
 }
 
 export default function ChatWidget({
@@ -161,9 +162,10 @@ export default function ChatWidget({
   chatId = 0,
   compact = false,
   onConversationUpdate,
+  onMessagesChange,
 }: ChatWidgetProps) {
   const { messages, isStreaming, currentEvents, send, stop, clear } =
-    useChat(chatId);
+    useChat(chatId, onMessagesChange);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevMsgCount = useRef(0);
