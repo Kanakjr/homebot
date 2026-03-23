@@ -81,3 +81,5 @@ TZ = os.environ.get("TZ", "America/New_York")
 
 ENERGY_RATE = float(os.environ.get("ENERGY_RATE", "8"))
 ENERGY_CURRENCY = os.environ.get("ENERGY_CURRENCY", "INR")
+
+MEDIA_DISCOVER_MODEL = os.environ.get("MEDIA_DISCOVER_MODEL", "gemini-3-flash-preview")

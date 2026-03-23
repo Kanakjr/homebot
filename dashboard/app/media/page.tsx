@@ -807,6 +807,14 @@ function RequestsTab({ data }: { data: JellyseerrRequestsResponse | null }) {
 
 const SCORE_STARS = ["", "\u2605", "\u2605\u2605", "\u2605\u2605\u2605", "\u2605\u2605\u2605\u2605", "\u2605\u2605\u2605\u2605\u2605"];
 
+type DiscoverSort = "score" | "seeders" | "size";
+
+const SOURCE_CATS = [
+  { id: "movies", label: "Movies", code: "2000" },
+  { id: "tv", label: "TV", code: "5000" },
+  { id: "anime", label: "Anime", code: "5070" },
+] as const;
+
 function DiscoverTab({
   data,
   loading,
@@ -815,10 +823,56 @@ function DiscoverTab({
 }: {
   data: DiscoverResponse | null;
   loading: boolean;
-  onRefresh: () => void;
+  onRefresh: (cats?: string) => void;
   onAddTorrent: (url: string) => void;
 }) {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [minSeeders, setMinSeeders] = useState(0);
+  const [sortBy, setSortBy] = useState<DiscoverSort>("score");
+  const [search, setSearch] = useState("");
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set(["movies", "tv"]));
+
+  const toggleSource = useCallback((id: string) => {
+    setSelectedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        if (next.size > 1) next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const categoryOrder = ["Movie", "TV Show", "Anime", "Documentary", "Other", "Uncategorized"];
+
+  const allCategories = useMemo(() => {
+    if (!data) return [];
+    return Object.keys(data.categories).sort((a, b) => {
+      const ai = categoryOrder.indexOf(a);
+      const bi = categoryOrder.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+  }, [data]);
+
+  const filteredItems = useMemo(() => {
+    if (!data) return [];
+    const entries = activeCategory
+      ? (data.categories[activeCategory] || []).map((item) => ({ ...item, _category: activeCategory }))
+      : Object.entries(data.categories).flatMap(([cat, items]) =>
+          items.map((item) => ({ ...item, _category: cat })),
+        );
+
+    const q = search.toLowerCase();
+    return entries
+      .filter((item) => item.seeders >= minSeeders)
+      .filter((item) => !q || item.title.toLowerCase().includes(q) || (item.description || "").toLowerCase().includes(q))
+      .sort((a, b) => {
+        if (sortBy === "score") return b.score - a.score || b.seeders - a.seeders;
+        if (sortBy === "seeders") return b.seeders - a.seeders;
+        return b.size_mb - a.size_mb;
+      });
+  }, [data, activeCategory, minSeeders, sortBy, search]);
 
   if (loading && !data) {
     return (
@@ -838,7 +892,7 @@ function DiscoverTab({
       <div className="py-10 text-center space-y-3">
         <p className="text-sm text-neutral-500">No discoveries yet.</p>
         <button
-          onClick={onRefresh}
+          onClick={() => onRefresh([...selectedSources].join(","))}
           className="rounded-lg bg-cyber-yellow/10 px-4 py-2 text-xs font-mono text-cyber-yellow hover:bg-cyber-yellow/20 transition-colors"
         >
           Run Discovery
@@ -846,15 +900,6 @@ function DiscoverTab({
       </div>
     );
   }
-
-  const categoryOrder = ["Movie", "TV Show", "Anime", "Documentary", "Other", "Uncategorized"];
-  const sortedCategories = Object.entries(data.categories).sort(
-    ([a], [b]) => {
-      const ai = categoryOrder.indexOf(a);
-      const bi = categoryOrder.indexOf(b);
-      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-    },
-  );
 
   const lastUpdated = data.last_updated
     ? new Date(data.last_updated)
@@ -869,16 +914,24 @@ function DiscoverTab({
       })()
     : "";
 
+  const totalItems = Object.values(data.categories).reduce((s, arr) => s + arr.length, 0);
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      {/* Header: stats + refresh */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs font-mono text-neutral-500">
-            {data.total_indexed} releases indexed
+            {data.total_indexed} indexed / {data.total_deduped ?? "?"} filtered / {totalItems} curated
           </span>
           {data.provider && data.provider !== "none" && (
             <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-mono text-neutral-500">
               via {data.provider}
+            </span>
+          )}
+          {data.search_info && (
+            <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-mono text-neutral-600">
+              {data.search_info.torznab_cats} | {data.search_info.model}
             </span>
           )}
         </div>
@@ -889,7 +942,7 @@ function DiscoverTab({
             </span>
           )}
           <button
-            onClick={onRefresh}
+            onClick={() => onRefresh([...selectedSources].join(","))}
             disabled={loading}
             className={cn(
               "rounded-lg px-3 py-1.5 text-[11px] font-mono transition-colors",
@@ -903,82 +956,171 @@ function DiscoverTab({
         </div>
       </div>
 
-      {sortedCategories.map(([category, items]) => {
-        const isCollapsed = collapsed[category];
-        return (
-          <div key={category}>
+      {/* Source category selector */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Source</span>
+        <div className="flex gap-1.5">
+          {SOURCE_CATS.map((sc) => (
             <button
-              onClick={() =>
-                setCollapsed((prev) => ({ ...prev, [category]: !prev[category] }))
-              }
-              className="mb-2 flex w-full items-center gap-2 text-left"
+              key={sc.id}
+              onClick={() => toggleSource(sc.id)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[11px] font-mono transition-colors border",
+                selectedSources.has(sc.id)
+                  ? "border-cyber-yellow/30 bg-cyber-yellow/10 text-cyber-yellow"
+                  : "border-white/10 bg-white/[0.03] text-neutral-500 hover:text-neutral-300",
+              )}
             >
-              <span
-                className={cn(
-                  "text-xs transition-transform",
-                  isCollapsed ? "" : "rotate-90",
-                )}
-              >
-                {"\u25B6"}
-              </span>
-              <span className="text-xs font-mono text-neutral-400 uppercase tracking-wider">
-                {category}
-              </span>
-              <span className="text-[10px] font-mono text-neutral-600">
-                ({items.length})
-              </span>
+              {sc.label}
             </button>
-            {!isCollapsed && (
-              <div className="space-y-2">
-                {items.map((item: DiscoverItem, idx: number) => (
-                  <div
-                    key={`${item.title}-${idx}`}
-                    className="rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-white/15 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-medium text-white">
-                            {item.title}
-                          </span>
-                          <span className="text-[11px] text-amber-400/80">
-                            {SCORE_STARS[item.score] || ""}
-                          </span>
-                          {item.quality && (
-                            <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono text-blue-400">
-                              {item.quality}
-                            </span>
-                          )}
-                        </div>
-                        {item.description && (
-                          <p className="mt-1 text-xs text-neutral-400 line-clamp-2">
-                            {item.description}
-                          </p>
-                        )}
-                        <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] font-mono text-neutral-500">
-                          <span className="text-green-400/80">
-                            {item.seeders} seeds
-                          </span>
-                          <span>{formatBytes(item.size_mb * 1024 * 1024)}</span>
-                          <span>{item.indexer}</span>
-                        </div>
-                      </div>
-                      {item.download_url && (
-                        <button
-                          onClick={() => onAddTorrent(item.download_url)}
-                          className="rounded-lg bg-cyber-yellow/10 px-2.5 py-1.5 text-[11px] font-mono text-cyber-yellow hover:bg-cyber-yellow/20 transition-colors shrink-0"
-                        >
-                          Download
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+          ))}
+        </div>
+        <button
+          onClick={() => onRefresh([...selectedSources].join(","))}
+          disabled={loading}
+          className={cn(
+            "rounded-full px-3 py-1 text-[11px] font-mono transition-colors",
+            loading
+              ? "bg-white/5 text-neutral-600 cursor-not-allowed"
+              : "bg-cyber-yellow/10 text-cyber-yellow hover:bg-cyber-yellow/20",
+          )}
+        >
+          {loading ? "Loading..." : "Fetch"}
+        </button>
+      </div>
+
+      {/* Result category filter + controls */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setActiveCategory(null)}
+            className={cn(
+              "rounded-full px-2.5 py-1 text-[11px] font-mono transition-colors",
+              !activeCategory
+                ? "bg-cyber-yellow/20 text-cyber-yellow"
+                : "bg-white/5 text-neutral-400 hover:text-white",
             )}
+          >
+            All ({totalItems})
+          </button>
+          {allCategories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[11px] font-mono transition-colors",
+                activeCategory === cat
+                  ? "bg-cyber-yellow/20 text-cyber-yellow"
+                  : "bg-white/5 text-neutral-400 hover:text-white",
+              )}
+            >
+              {cat} ({data.categories[cat]?.length || 0})
+            </button>
+          ))}
+        </div>
+
+        <div className="ml-auto flex items-center gap-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter..."
+            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-white placeholder:text-neutral-600 focus:outline-none focus:border-cyber-yellow/50 w-32"
+          />
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-mono text-neutral-600">Seeds</label>
+            <select
+              value={minSeeders}
+              onChange={(e) => setMinSeeders(Number(e.target.value))}
+              className="rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[11px] font-mono text-neutral-400 focus:outline-none focus:border-cyber-yellow/50"
+            >
+              <option value={0}>Any</option>
+              <option value={10}>10+</option>
+              <option value={50}>50+</option>
+              <option value={100}>100+</option>
+              <option value={200}>200+</option>
+            </select>
           </div>
-        );
-      })}
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-mono text-neutral-600">Sort</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as DiscoverSort)}
+              className="rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[11px] font-mono text-neutral-400 focus:outline-none focus:border-cyber-yellow/50"
+            >
+              <option value="score">Score</option>
+              <option value="seeders">Seeders</option>
+              <option value="size">Size</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Results */}
+      {filteredItems.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-white/10 p-8 text-center">
+          <p className="text-neutral-400">No items match your filters.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filteredItems.map((item, idx) => (
+            <div
+              key={`${item.title}-${idx}`}
+              className="rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-white/15 transition-colors"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-white">
+                      {item.title}
+                    </span>
+                    <span className="text-[11px] text-amber-400/80">
+                      {SCORE_STARS[item.score] || ""}
+                    </span>
+                    <span className={cn(
+                      "rounded-full px-1.5 py-0.5 text-[10px] font-mono",
+                      item._category === "Movie" ? "bg-blue-500/10 text-blue-400"
+                        : item._category === "TV Show" ? "bg-purple-500/10 text-purple-400"
+                        : item._category === "Anime" ? "bg-pink-500/10 text-pink-400"
+                        : item._category === "Documentary" ? "bg-teal-500/10 text-teal-400"
+                        : "bg-white/5 text-neutral-500",
+                    )}>
+                      {item._category}
+                    </span>
+                    {item.quality && (
+                      <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono text-blue-400">
+                        {item.quality}
+                      </span>
+                    )}
+                  </div>
+                  {item.description && (
+                    <p className="mt-1 text-xs text-neutral-400 line-clamp-2">
+                      {item.description}
+                    </p>
+                  )}
+                  <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] font-mono text-neutral-500">
+                    <span className="text-green-400/80">
+                      {item.seeders} seeds
+                    </span>
+                    <span>{formatBytes(item.size_mb * 1024 * 1024)}</span>
+                    <span>{item.indexer}</span>
+                  </div>
+                </div>
+                {item.download_url && (
+                  <button
+                    onClick={() => onAddTorrent(item.download_url)}
+                    className="rounded-lg bg-cyber-yellow/10 px-2.5 py-1.5 text-[11px] font-mono text-cyber-yellow hover:bg-cyber-yellow/20 transition-colors shrink-0"
+                  >
+                    Download
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1010,17 +1152,21 @@ export default function MediaPage() {
     }
   }, []);
 
+  const fetchDiscover = useCallback(async (refresh = false, cats?: string) => {
+    setDiscoverLoading(true);
+    try {
+      const data = await getMediaDiscover(refresh, cats);
+      setDiscoverData(data);
+    } finally {
+      setDiscoverLoading(false);
+    }
+  }, []);
+
   const fetchTabData = useCallback(async (tab: TabId, refresh = false) => {
     try {
       switch (tab) {
         case "discover": {
-          setDiscoverLoading(true);
-          try {
-            const data = await getMediaDiscover(refresh);
-            setDiscoverData(data);
-          } finally {
-            setDiscoverLoading(false);
-          }
+          await fetchDiscover(refresh);
           break;
         }
         case "downloads": {
@@ -1173,7 +1319,7 @@ export default function MediaPage() {
             <DiscoverTab
               data={discoverData}
               loading={discoverLoading}
-              onRefresh={() => fetchTabData("discover", true)}
+              onRefresh={(cats) => fetchDiscover(true, cats)}
               onAddTorrent={handleAddTorrent}
             />
           )}

@@ -498,9 +498,12 @@ export async function createMediaRequest(
   });
 }
 
-export async function getMediaDiscover(refresh = false): Promise<DiscoverResponse> {
-  const params = refresh ? "?refresh=true" : "";
-  return fetchJSON<DiscoverResponse>(`/api/media/discover${params}`);
+export async function getMediaDiscover(refresh = false, cats?: string): Promise<DiscoverResponse> {
+  const params = new URLSearchParams();
+  if (refresh) params.set("refresh", "true");
+  if (cats) params.set("cats", cats);
+  const qs = params.toString();
+  return fetchJSON<DiscoverResponse>(`/api/media/discover${qs ? `?${qs}` : ""}`);
 }
 
 // --- Server / Tunnel ---

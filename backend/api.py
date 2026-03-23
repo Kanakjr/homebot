@@ -1960,6 +1960,25 @@ _JUNK_PATTERNS = re.compile(
     r"\b(CAM|HDCAM|TS|TELESYNC|TC|TELECINE|SCR|SCREENER|DVDSCR|SAMPLE)\b",
     re.IGNORECASE,
 )
+_NON_MEDIA_EXT = re.compile(r"\.(zip|rar|7z|exe|iso|apk|pdf|epub|mobi|cbr|cbz)\s*$", re.IGNORECASE)
+_CJK_HEAVY = re.compile(r"[\u3000-\u9fff\uf900-\ufaff]")
+_ADULT_PATTERNS = re.compile(
+    r"(同人誌|成年コミック|18禁|エロ|hentai|xxx|JAV|[Pp]orn|NSFW)",
+)
+
+
+def _is_junk_release(title: str) -> bool:
+    """Return True if a torrent title looks like non-media or adult content."""
+    if _JUNK_PATTERNS.search(title):
+        return True
+    if _NON_MEDIA_EXT.search(title):
+        return True
+    if _ADULT_PATTERNS.search(title):
+        return True
+    cjk_chars = len(_CJK_HEAVY.findall(title))
+    if cjk_chars > 5 and cjk_chars / max(len(title), 1) > 0.3:
+        return True
+    return False
 
 
 def _clean_title(raw: str) -> str:
@@ -1980,7 +1999,15 @@ def _extract_quality(raw: str) -> str:
     return " ".join(dict.fromkeys(t.upper() for t in tags)) if tags else ""
 
 
-async def _fetch_prowlarr_rss() -> list[dict]:
+TORZNAB_CATS = {
+    "movies": "2000",
+    "tv": "5000",
+    "anime": "5070",
+}
+_DEFAULT_CATS = "2000,5000"
+
+
+async def _fetch_prowlarr_rss(cats: str = _DEFAULT_CATS) -> list[dict]:
     """Fetch recent releases from all enabled Prowlarr indexers via torznab RSS."""
     headers = {"X-Api-Key": config.PROWLARR_API_KEY}
     results = []
@@ -2004,7 +2031,7 @@ async def _fetch_prowlarr_rss() -> list[dict]:
     async def fetch_indexer(idx_id: int):
         try:
             url = f"{config.PROWLARR_URL}/{idx_id}/api"
-            params = {"t": "search", "apikey": config.PROWLARR_API_KEY, "cat": "2000,5000"}
+            params = {"t": "search", "apikey": config.PROWLARR_API_KEY, "cat": cats}
             timeout = aiohttp.ClientTimeout(total=20)
             async with aiohttp.ClientSession(timeout=timeout) as s:
                 async with s.get(url, params=params) as resp:
@@ -2018,7 +2045,7 @@ async def _fetch_prowlarr_rss() -> list[dict]:
                         return
                     for item in channel.findall("item"):
                         title = (item.findtext("title") or "").strip()
-                        if not title or _JUNK_PATTERNS.search(title):
+                        if not title or _is_junk_release(title):
                             continue
                         seeders = 0
                         peers = 0
@@ -2109,12 +2136,13 @@ async def _enrich_with_llm(
     torrents: list[dict],
     trending: list[dict],
 ) -> tuple[dict[str, list[dict]], str]:
-    """Use local Qwen (or Gemini fallback) to categorize and describe top torrents."""
+    """Use gemini-3-flash-preview via Ollama (or Gemini API fallback) to categorize torrents."""
     from langchain_core.messages import SystemMessage, HumanMessage
     from llm import invoke_with_fallback
 
+    max_items = 20
     torrent_lines = []
-    for i, t in enumerate(torrents[:30]):
+    for i, t in enumerate(torrents[:max_items]):
         torrent_lines.append(
             f"{i+1}. \"{t['raw_title']}\" (seeders: {t['seeders']}, "
             f"size: {round(t['size'] / 1024 / 1024)}MB)"
@@ -2154,12 +2182,25 @@ async def _enrich_with_llm(
     ]
 
     try:
-        text, provider = await invoke_with_fallback(messages, prefer_local=True, temperature=0.3)
+        discover_model = config.MEDIA_DISCOVER_MODEL
+        text, provider = await invoke_with_fallback(
+            messages, model=discover_model, provider="ollama",
+            prefer_local=True, temperature=0.3,
+            num_predict=8192, max_output_tokens=8192,
+        )
         text = text.strip()
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?\s*", "", text)
             text = re.sub(r"\s*```$", "", text)
 
+        json_match = re.search(r"\{[\s\S]*\}", text)
+        if json_match:
+            text = json_match.group(0)
+
+        text = re.sub(r",\s*([}\]])", r"\1", text)
+        text = re.sub(r"'(\w+)'\s*:", r'"\1":', text)
+
+        log.info("discover: LLM response (%d chars, provider=%s): %s", len(text), provider, text[:300])
         parsed = json.loads(text)
         items_raw = parsed.get("items", parsed if isinstance(parsed, list) else [])
 
@@ -2191,7 +2232,7 @@ async def _enrich_with_llm(
     except Exception as e:
         log.warning("discover: LLM enrichment failed: %s", e)
         categories: dict[str, list[dict]] = {"Uncategorized": []}
-        for t in torrents[:30]:
+        for t in torrents[:max_items]:
             categories["Uncategorized"].append({
                 "title": t["clean_title"],
                 "description": "",
@@ -2207,10 +2248,31 @@ async def _enrich_with_llm(
         return categories, "none"
 
 
-async def _build_discover_data() -> dict:
+def _resolve_cats(cats_param: str | None) -> str:
+    """Turn human-friendly category names into torznab codes.
+
+    Accepts comma-separated mix of names (``movies``, ``tv``, ``anime``)
+    and raw codes (``2000``, ``5000``).  Returns a comma-separated code string.
+    """
+    if not cats_param:
+        return _DEFAULT_CATS
+    parts = [p.strip().lower() for p in cats_param.split(",") if p.strip()]
+    codes = []
+    for p in parts:
+        codes.append(TORZNAB_CATS.get(p, p))
+    return ",".join(codes) if codes else _DEFAULT_CATS
+
+
+def _cats_label(codes: str) -> str:
+    """Human-readable label for torznab cat codes."""
+    names = {v: k.title() for k, v in TORZNAB_CATS.items()}
+    return ", ".join(f"{c} ({names.get(c, '?')})" for c in codes.split(","))
+
+
+async def _build_discover_data(cats: str = _DEFAULT_CATS) -> dict:
     """Full discover pipeline: fetch, deduplicate, enrich, return."""
     raw_torrents, trending = await asyncio.gather(
-        _fetch_prowlarr_rss(),
+        _fetch_prowlarr_rss(cats),
         _fetch_jellyseerr_trending(),
     )
 
@@ -2221,6 +2283,11 @@ async def _build_discover_data() -> dict:
             "total_indexed": len(raw_torrents),
             "last_updated": datetime.now(timezone.utc).isoformat(),
             "provider": "none",
+            "search_info": {
+                "torznab_cats": _cats_label(cats),
+                "min_seeders": 10,
+                "model": config.MEDIA_DISCOVER_MODEL,
+            },
         }
 
     categories, provider = await _enrich_with_llm(deduped, trending)
@@ -2228,33 +2295,47 @@ async def _build_discover_data() -> dict:
     return {
         "categories": categories,
         "total_indexed": len(raw_torrents),
+        "total_deduped": len(deduped),
         "last_updated": datetime.now(timezone.utc).isoformat(),
         "provider": provider,
+        "search_info": {
+            "torznab_cats": _cats_label(cats),
+            "min_seeders": 10,
+            "model": config.MEDIA_DISCOVER_MODEL,
+        },
     }
 
 
-@app.get("/api/media/discover")
-async def media_discover(refresh: bool = False):
-    """AI-powered media discovery: trending torrents enriched by local LLM."""
-    global _DISCOVER_CACHE, _DISCOVER_CACHE_TIME
+_DISCOVER_CACHES: dict[str, tuple[dict, float]] = {}
 
+
+@app.get("/api/media/discover")
+async def media_discover(refresh: bool = False, cats: str | None = None):
+    """AI-powered media discovery: trending torrents enriched by LLM.
+
+    ``cats`` accepts comma-separated category names or torznab codes:
+    ``movies`` (2000), ``tv`` (5000), ``anime`` (5070), or raw codes.
+    Default: ``movies,tv``.
+    """
+    resolved = _resolve_cats(cats)
     now = time.time()
-    if not refresh and _DISCOVER_CACHE and (now - _DISCOVER_CACHE_TIME) < _DISCOVER_TTL:
-        return _DISCOVER_CACHE
+    cached = _DISCOVER_CACHES.get(resolved)
+    if not refresh and cached and (now - cached[1]) < _DISCOVER_TTL:
+        return cached[0]
 
     async with _DISCOVER_LOCK:
-        if not refresh and _DISCOVER_CACHE and (now - _DISCOVER_CACHE_TIME) < _DISCOVER_TTL:
-            return _DISCOVER_CACHE
+        cached = _DISCOVER_CACHES.get(resolved)
+        if not refresh and cached and (now - cached[1]) < _DISCOVER_TTL:
+            return cached[0]
 
         try:
-            data = await _build_discover_data()
-            _DISCOVER_CACHE = data
-            _DISCOVER_CACHE_TIME = time.time()
+            data = await _build_discover_data(resolved)
+            _DISCOVER_CACHES[resolved] = (data, time.time())
             return data
         except Exception as e:
             log.error("discover: pipeline failed: %s", e)
-            if _DISCOVER_CACHE:
-                return _DISCOVER_CACHE
+            if cached:
+                return cached[0]
             raise HTTPException(status_code=503, detail=f"Discovery unavailable: {e}")
 
 

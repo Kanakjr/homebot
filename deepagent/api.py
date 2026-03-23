@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 import config
 from agent import build_agent
+from model_policy import ollama_name_eligible_for_deepagent, ollama_id_eligible_for_deepagent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,7 +83,11 @@ async def health():
 
 @app.get("/api/models")
 async def list_models():
-    """Return available LLM models for the deep agent."""
+    """Return available LLM models for the deep agent.
+
+    Ollama models are filtered by the eligibility policy (Qwen > MAX_B excluded).
+    The configured default model is always included.
+    """
     import aiohttp
 
     model_name = config.MODEL.split(":", 1)[-1] if ":" in config.MODEL else config.MODEL
@@ -101,8 +106,11 @@ async def list_models():
                     for m in data.get("models", []):
                         name = m.get("name", "")
                         model_id = f"ollama:{name}"
-                        if model_id != config.MODEL:
-                            models.append({"id": model_id, "provider": "ollama", "name": name})
+                        if model_id == config.MODEL:
+                            continue
+                        if not ollama_name_eligible_for_deepagent(name):
+                            continue
+                        models.append({"id": model_id, "provider": "ollama", "name": name})
     except Exception:
         pass
 
@@ -115,6 +123,14 @@ async def chat_stream(req: ChatRequest):
 
     Event types: thinking, tool_call, tool_result, response, error, done.
     """
+    if req.model and req.model.startswith("ollama:"):
+        if not ollama_id_eligible_for_deepagent(req.model):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=400,
+                content={"detail": f"Model {req.model} is not eligible for Deep Agent (Qwen > {config.DEEPAGENT_MAX_QWEN_B}B excluded)."},
+            )
+
     agent, skills_files = _get_agent(req.model)
 
     async def event_generator():

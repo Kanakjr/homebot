@@ -42,5 +42,8 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/tmp/deepagent_data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- LangSmith ---
+DEEPAGENT_MAX_QWEN_B = int(os.getenv("DEEPAGENT_MAX_QWEN_B", "4"))
+
+# --- LangSmith ---
 LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING", "false")
 LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "homebot-deepagent")

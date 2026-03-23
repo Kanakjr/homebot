@@ -82,19 +82,24 @@ async def invoke_with_fallback(
     messages: list[BaseMessage],
     *,
     model: str | None = None,
+    provider: str | None = None,
     prefer_local: bool = True,
     **kwargs,
 ) -> tuple[str, str]:
     """Invoke an LLM with optional local-first strategy.
 
-    When *model* is set it takes priority:
+    *provider* overrides auto-detection: ``"ollama"`` forces Ollama even for
+    model names that look like Gemini (e.g. ``gemini-3-flash-preview`` pulled
+    through Ollama Cloud).
+
+    When *model* is set and *provider* is ``None``:
       - A Gemini model name (starts with ``gemini-``) goes straight to Gemini.
       - Anything else is treated as an Ollama model name.
     When *model* is ``None`` the original local-first-then-Gemini fallback is used.
 
-    Returns (text, provider) where provider is "ollama" or "gemini".
+    Returns (text, provider_used) where provider_used is "ollama" or "gemini".
     """
-    if model and is_gemini_model(model):
+    if model and provider != "ollama" and is_gemini_model(model):
         gemini = get_gemini_llm(model=model, **kwargs)
         response = await gemini.ainvoke(messages)
         text = extract_text(response)

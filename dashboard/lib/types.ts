@@ -647,11 +647,19 @@ export interface DiscoverItem {
   raw_title: string;
 }
 
+export interface DiscoverSearchInfo {
+  torznab_cats: string;
+  min_seeders: number;
+  model: string;
+}
+
 export interface DiscoverResponse {
   categories: Record<string, DiscoverItem[]>;
   total_indexed: number;
+  total_deduped?: number;
   last_updated: string;
   provider: string;
+  search_info?: DiscoverSearchInfo;
 }
 
 // --- Server / Tunnel types ---

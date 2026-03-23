@@ -1,30 +1,86 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
+type NavItem = { href: string; label: string; icon: string };
+type NavSection = { label: string; items: NavItem[] };
+
+const PINNED_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard", icon: "grid" },
   { href: "/chat", label: "Chat", icon: "message" },
-  { href: "/devices", label: "Devices", icon: "cpu" },
-  { href: "/cameras", label: "Cameras", icon: "camera" },
-  { href: "/activity", label: "Activity", icon: "activity" },
-  { href: "/energy", label: "Energy", icon: "bolt" },
-  { href: "/network", label: "Network", icon: "wifi" },
-  { href: "/skills", label: "Skills", icon: "zap" },
-  { href: "/memory", label: "Memory", icon: "brain" },
-  { href: "/tools", label: "Tools", icon: "wrench" },
-  { href: "/media", label: "Media", icon: "film" },
-  { href: "/transcoder", label: "Transcoder", icon: "scissors" },
   { href: "/home-map", label: "Home Map", icon: "map" },
-  { href: "/health", label: "Health", icon: "heart" },
-  { href: "/analytics", label: "Analytics", icon: "chart" },
-  { href: "/reports", label: "Reports", icon: "report" },
+  { href: "/cameras", label: "Cameras", icon: "camera" },
+];
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: "Monitoring",
+    items: [
+      { href: "/activity", label: "Activity", icon: "activity" },
+      { href: "/energy", label: "Energy", icon: "bolt" },
+      { href: "/network", label: "Network", icon: "wifi" },
+      { href: "/health", label: "Health", icon: "heart" },
+    ],
+  },
+  {
+    label: "AI",
+    items: [
+      { href: "/skills", label: "Skills", icon: "zap" },
+      { href: "/memory", label: "Memory", icon: "brain" },
+      { href: "/tools", label: "Tools", icon: "wrench" },
+    ],
+  },
+  {
+    label: "Content",
+    items: [
+      { href: "/media", label: "Media", icon: "film" },
+      { href: "/transcoder", label: "Transcoder", icon: "scissors" },
+    ],
+  },
+  {
+    label: "Data",
+    items: [
+      { href: "/analytics", label: "Analytics", icon: "chart" },
+      { href: "/reports", label: "Reports", icon: "report" },
+    ],
+  },
+];
+
+const SYSTEM_ITEMS: NavItem[] = [
+  { href: "/devices", label: "Devices", icon: "cpu" },
   { href: "/server", label: "Server", icon: "server" },
   { href: "/settings", label: "Settings", icon: "settings" },
 ];
+
+const STORAGE_KEY = "homebot-nav-expanded";
+
+function loadExpanded(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveExpanded(state: Record<string, boolean>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
+function sectionForPath(pathname: string): string | null {
+  for (const section of NAV_SECTIONS) {
+    if (section.items.some((item) => item.href === pathname)) {
+      return section.label;
+    }
+  }
+  return null;
+}
 
 function NavIcon({ icon, className }: { icon: string; className?: string }) {
   const icons: Record<string, React.ReactNode> = {
@@ -124,12 +180,133 @@ function NavIcon({ icon, className }: { icon: string; className?: string }) {
   return icons[icon] || null;
 }
 
+function NavLink({
+  item,
+  active,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200",
+        active
+          ? "bg-cyber-yellow/10 text-cyber-yellow"
+          : "text-neutral-400 hover:bg-white/5 hover:text-white"
+      )}
+    >
+      <NavIcon icon={item.icon} className="h-5 w-5 shrink-0" />
+      <span>{item.label}</span>
+    </Link>
+  );
+}
+
+function ChevronIcon({ expanded, className }: { expanded: boolean; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      className={cn("h-3 w-3 transition-transform duration-200", expanded && "rotate-90", className)}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+    </svg>
+  );
+}
+
+function NavGroup({
+  section,
+  expanded,
+  onToggle,
+  pathname,
+  onNavigate,
+}: {
+  section: NavSection;
+  expanded: boolean;
+  onToggle: () => void;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div>
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between px-3 py-1.5 group"
+      >
+        <span className="text-[10px] uppercase tracking-widest text-neutral-600 font-mono group-hover:text-neutral-400 transition-colors">
+          {section.label}
+        </span>
+        <ChevronIcon expanded={expanded} className="text-neutral-600 group-hover:text-neutral-400" />
+      </button>
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-in-out"
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+      >
+        <div ref={contentRef} className="overflow-hidden">
+          <div className="flex flex-col gap-0.5 pt-0.5">
+            {section.items.map((item) => (
+              <NavLink
+                key={item.href}
+                item={item}
+                active={pathname === item.href}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Divider() {
+  return <div className="my-2 mx-3 border-t border-white/5" />;
+}
+
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const saved = loadExpanded();
+    const defaults = Object.fromEntries(NAV_SECTIONS.map((s) => [s.label, true]));
+    return { ...defaults, ...saved };
+  });
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      return;
+    }
+    const activeSection = sectionForPath(pathname);
+    if (activeSection) {
+      setExpanded((prev) => {
+        if (prev[activeSection]) return prev;
+        const next = { ...prev, [activeSection]: true };
+        saveExpanded(next);
+        return next;
+      });
+    }
+  }, [pathname]);
+
+  const toggleSection = useCallback((label: string) => {
+    setExpanded((prev) => {
+      const next = { ...prev, [label]: !prev[label] };
+      saveExpanded(next);
+      return next;
+    });
+  }, []);
 
   return (
     <>
-      <div className="mb-8 flex items-center gap-2 px-4">
+      <div className="mb-4 flex items-center gap-2 px-4">
         <div className="h-8 w-8 rounded-lg bg-cyber-yellow flex items-center justify-center shrink-0">
           <span className="text-sm font-bold text-black font-mono">H</span>
         </div>
@@ -138,36 +315,46 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </span>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 w-full px-2 overflow-y-auto scrollbar-hide">
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
+      <nav className="flex flex-1 flex-col w-full px-2 overflow-y-auto scrollbar-hide">
+        <div className="flex flex-col gap-0.5">
+          {PINNED_ITEMS.map((item) => (
+            <NavLink
               key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200",
-                active
-                  ? "bg-cyber-yellow/10 text-cyber-yellow"
-                  : "text-neutral-400 hover:bg-white/5 hover:text-white"
-              )}
-            >
-              <NavIcon icon={item.icon} className="h-5 w-5 shrink-0" />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="px-2 w-full">
-        <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-          <p className="text-xs text-neutral-500 font-mono">Backend</p>
-          <p className="text-xs text-neutral-400 truncate">
-            {(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/^https?:\/\//, "")}
-          </p>
+              item={item}
+              active={pathname === item.href}
+              onNavigate={onNavigate}
+            />
+          ))}
         </div>
-      </div>
+
+        <Divider />
+
+        <div className="flex flex-col gap-1">
+          {NAV_SECTIONS.map((section) => (
+            <NavGroup
+              key={section.label}
+              section={section}
+              expanded={!!expanded[section.label]}
+              onToggle={() => toggleSection(section.label)}
+              pathname={pathname}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+
+        <Divider />
+
+        <div className="flex flex-col gap-0.5">
+          {SYSTEM_ITEMS.map((item) => (
+            <NavLink
+              key={item.href}
+              item={item}
+              active={pathname === item.href}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      </nav>
     </>
   );
 }
