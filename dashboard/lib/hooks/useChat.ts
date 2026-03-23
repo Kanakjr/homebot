@@ -47,6 +47,7 @@ export function useChat(
       const toolCalls: ToolCallInfo[] = [];
       const images: string[] = [];
       let responseText = "";
+      let uiSpec: { root: string; elements: Record<string, unknown> } | undefined;
 
       try {
         const stream = streamDeepAgentEvents(
@@ -73,6 +74,10 @@ export function useChat(
               tc.result = event.content;
               tc.duration_ms = event.duration_ms;
             }
+          } else if (event.type === "ui_spec") {
+            if (event.spec) {
+              uiSpec = event.spec;
+            }
           } else if (event.type === "image") {
             if (event.filename) {
               images.push(getSnapshotUrl(event.filename));
@@ -94,6 +99,7 @@ export function useChat(
         content: responseText,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         images: images.length > 0 ? images : undefined,
+        uiSpec,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, assistantMsg]);

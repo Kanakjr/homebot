@@ -1170,6 +1170,197 @@ async def edit_dashboard(req: DashboardEditRequest):
     }
 
 
+WIDGET_BUILDER_SYSTEM_PROMPT = """You are a smart-home widget builder that generates json-render UI specs.
+
+Given a set of entity IDs with their current states and a user description, generate a json-render spec
+that creates an interactive widget. The spec MUST be a valid JSON object with:
+- "root": string ID of the root element
+- "elements": object mapping element IDs to component definitions
+
+Each element has: "type" (component name), "props" (object), "children" (array of child IDs).
+
+AVAILABLE COMPONENTS:
+
+Layout (have children):
+- Card: { title?: string, padding?: "sm"|"md"|"lg" }
+- Stack: { direction?: "vertical"|"horizontal", gap?: "sm"|"md"|"lg" }
+- Grid: { columns?: number, gap?: "sm"|"md"|"lg" }
+
+Device controls (no children):
+- DeviceToggle: { entity_id: string, label?: string } -- on/off toggle
+- LightControl: { entity_id: string, label?: string } -- brightness slider + toggle
+- ClimateControl: { entity_id: string, label?: string } -- preset modes + toggle
+
+Display (no children):
+- StatCard: { label: string, value: string, unit?: string } -- key metric
+- SensorReading: { entity_id: string, label?: string } -- live sensor value
+
+Actions (no children):
+- ActionButton: { label: string, variant?: "primary"|"secondary"|"ghost", action_type: string, action_params?: object }
+  action_type values: "toggle_entity", "set_light", "set_climate", "activate_scene"
+
+RULES:
+- Use only entity IDs from the provided list.
+- Choose appropriate components based on entity domains (light.* -> LightControl, switch.*/fan.* -> DeviceToggle, sensor.* -> SensorReading, climate.* -> ClimateControl).
+- Wrap everything in a root Card or Stack.
+- Keep specs concise -- prefer 3-8 elements total.
+- RESPOND WITH ONLY the JSON spec object. No markdown, no code fences, no explanation.
+"""
+
+
+class GenerateWidgetRequest(BaseModel):
+    entity_ids: list[str]
+    description: str
+    size: str = "md"
+
+
+@app.post("/api/dashboard/generate-widget")
+async def generate_widget(req: GenerateWidgetRequest):
+    """Generate a json-render UI spec for a custom dashboard widget."""
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    entities_info: list[dict] = []
+    for eid in req.entity_ids:
+        state = _app_ctx.state_cache.get(eid)
+        if state:
+            attrs = state.get("attributes", {})
+            entities_info.append({
+                "entity_id": eid,
+                "state": state.get("state", "unknown"),
+                "friendly_name": attrs.get("friendly_name", eid),
+                "domain": eid.split(".")[0],
+            })
+        else:
+            entities_info.append({
+                "entity_id": eid,
+                "state": "unknown",
+                "friendly_name": eid,
+                "domain": eid.split(".")[0],
+            })
+
+    user_prompt = (
+        f"ENTITIES:\n{json.dumps(entities_info, indent=2)}\n\n"
+        f"WIDGET SIZE: {req.size}\n\n"
+        f"USER REQUEST: {req.description}"
+    )
+
+    llm = ChatGoogleGenerativeAI(
+        model=config.GEMINI_MODEL,
+        google_api_key=config.GEMINI_API_KEY,
+        temperature=0.7,
+        max_output_tokens=4096,
+    )
+
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=WIDGET_BUILDER_SYSTEM_PROMPT),
+            HumanMessage(content=user_prompt),
+        ])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gemini error: {e}")
+
+    raw_text = response.content.strip()
+
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+
+    json_start = raw_text.find("{")
+    json_end = raw_text.rfind("}")
+    if json_start != -1 and json_end != -1:
+        raw_text = raw_text[json_start:json_end + 1]
+
+    try:
+        spec = json.loads(raw_text)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Failed to parse generated widget spec.")
+
+    if "root" not in spec or "elements" not in spec:
+        raise HTTPException(status_code=502, detail="Generated spec missing root or elements.")
+
+    return {"spec": spec, "summary": "Widget generated successfully."}
+
+
+WIDGET_SUGGEST_SYSTEM_PROMPT = """You are a smart-home dashboard assistant. Given a list of Home Assistant entities (with their friendly names, domains, and current states), suggest a concise widget title and a short description of what the widget should display.
+
+RULES:
+- The title should be 2-4 words, describing the group (e.g. "Bedroom Lights", "Living Room Climate", "Kitchen Sensors").
+- The description should be 1-2 sentences telling the AI widget builder what controls and readings to include.
+- Respond with ONLY a JSON object: {"title": "...", "description": "..."}
+- No markdown, no code fences, no extra text.
+"""
+
+
+class SuggestWidgetRequest(BaseModel):
+    entity_ids: list[str]
+
+
+@app.post("/api/dashboard/suggest-widget")
+async def suggest_widget(req: SuggestWidgetRequest):
+    """Suggest a widget title and description based on selected entities."""
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    entities_info: list[dict] = []
+    for eid in req.entity_ids:
+        state = _app_ctx.state_cache.get(eid)
+        if state:
+            attrs = state.get("attributes", {})
+            entities_info.append({
+                "entity_id": eid,
+                "state": state.get("state", "unknown"),
+                "friendly_name": attrs.get("friendly_name", eid),
+                "domain": eid.split(".")[0],
+            })
+        else:
+            entities_info.append({
+                "entity_id": eid,
+                "state": "unknown",
+                "friendly_name": eid,
+                "domain": eid.split(".")[0],
+            })
+
+    llm = ChatGoogleGenerativeAI(
+        model=config.GEMINI_MODEL,
+        google_api_key=config.GEMINI_API_KEY,
+        temperature=0.7,
+        max_output_tokens=256,
+    )
+
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=WIDGET_SUGGEST_SYSTEM_PROMPT),
+            HumanMessage(content=f"ENTITIES:\n{json.dumps(entities_info, indent=2)}"),
+        ])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gemini error: {e}")
+
+    raw_text = response.content.strip()
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+
+    json_start = raw_text.find("{")
+    json_end = raw_text.rfind("}")
+    if json_start != -1 and json_end != -1:
+        raw_text = raw_text[json_start:json_end + 1]
+
+    try:
+        result = json.loads(raw_text)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Failed to parse suggestion.")
+
+    return {
+        "title": result.get("title", "Custom Widget"),
+        "description": result.get("description", ""),
+    }
+
+
 @app.get("/api/network")
 async def get_network(hours: int = 24):
     """Network status: Deco mesh nodes, connected clients, bandwidth sensors + history.
@@ -2117,6 +2308,16 @@ async def _fetch_jellyseerr_trending() -> list[dict]:
     return trending
 
 
+_FLAT_SEEDER_INDEXERS = {"yts"}
+
+
+def _effective_seeders(item: dict) -> int:
+    """Return a sort-friendly seeder count, penalizing indexers with flat/fake values."""
+    if item.get("indexer", "").lower() in _FLAT_SEEDER_INDEXERS:
+        return 1
+    return item["seeders"]
+
+
 def _deduplicate_torrents(raw: list[dict], min_seeders: int = 10) -> list[dict]:
     """Group by clean title, keep highest-seeder variant, filter by threshold."""
     groups: dict[str, dict] = {}
@@ -2126,9 +2327,11 @@ def _deduplicate_torrents(raw: list[dict], min_seeders: int = 10) -> list[dict]:
             continue
         if item["seeders"] < min_seeders:
             continue
-        if key not in groups or item["seeders"] > groups[key]["seeders"]:
+        eff = _effective_seeders(item)
+        existing = groups.get(key)
+        if not existing or eff > _effective_seeders(existing):
             groups[key] = item
-    ranked = sorted(groups.values(), key=lambda x: x["seeders"], reverse=True)
+    ranked = sorted(groups.values(), key=_effective_seeders, reverse=True)
     return ranked[:40]
 
 
@@ -2217,6 +2420,7 @@ async def _enrich_with_llm(
                 "score": max(1, min(5, int(enriched.get("score", 3)))),
                 "quality": t["quality"],
                 "seeders": t["seeders"],
+                "seeders_approx": t.get("indexer", "").lower() in _FLAT_SEEDER_INDEXERS,
                 "peers": t["peers"],
                 "size_mb": round(t["size"] / 1024 / 1024),
                 "download_url": t["download_url"],
@@ -2239,6 +2443,7 @@ async def _enrich_with_llm(
                 "score": 3,
                 "quality": t["quality"],
                 "seeders": t["seeders"],
+                "seeders_approx": t.get("indexer", "").lower() in _FLAT_SEEDER_INDEXERS,
                 "peers": t["peers"],
                 "size_mb": round(t["size"] / 1024 / 1024),
                 "download_url": t["download_url"],

@@ -162,12 +162,19 @@ async def chat_stream(req: ChatRequest):
                                 for tc in msg.tool_calls:
                                     tc_id = tc.get("id", tc["name"])
                                     pending_tool_times[tc_id] = time.monotonic()
-                                    yield _sse("tool_call", {
-                                        "type": "tool_call",
-                                        "name": tc["name"],
-                                        "args": tc["args"],
-                                        "id": tc.get("id", ""),
-                                    })
+                                    if tc["name"] == "render_ui":
+                                        spec = tc["args"].get("spec", tc["args"])
+                                        yield _sse("ui_spec", {
+                                            "type": "ui_spec",
+                                            "spec": spec,
+                                        })
+                                    else:
+                                        yield _sse("tool_call", {
+                                            "type": "tool_call",
+                                            "name": tc["name"],
+                                            "args": tc["args"],
+                                            "id": tc.get("id", ""),
+                                        })
 
                             text = _extract_text(msg.content)
                             if text:
@@ -183,6 +190,8 @@ async def chat_stream(req: ChatRequest):
                             call_id = getattr(msg, "tool_call_id", "")
                             t_start = pending_tool_times.pop(call_id, None)
                             duration = int((time.monotonic() - t_start) * 1000) if t_start else 0
+                            if msg.name == "render_ui":
+                                continue
                             content_str = (msg.content or "")[:2000]
                             last_tool_results.append(content_str)
                             yield _sse("tool_result", {

@@ -316,6 +316,29 @@ export async function getDashboardSummary(regenerate = false): Promise<Dashboard
   return fetchJSON<DashboardSummary>(`/api/dashboard/summary${qs}`);
 }
 
+export async function generateWidget(
+  entity_ids: string[],
+  description: string,
+  size = "md",
+): Promise<{
+  spec: { root: string; elements: Record<string, unknown> };
+  summary: string;
+}> {
+  return fetchJSON("/api/dashboard/generate-widget", {
+    method: "POST",
+    body: JSON.stringify({ entity_ids, description, size }),
+  });
+}
+
+export async function suggestWidget(
+  entity_ids: string[],
+): Promise<{ title: string; description: string }> {
+  return fetchJSON("/api/dashboard/suggest-widget", {
+    method: "POST",
+    body: JSON.stringify({ entity_ids }),
+  });
+}
+
 export async function setLightState(
   entityId: string,
   params: { brightness?: number; color_temp_kelvin?: number; rgb_color?: [number, number, number] },

@@ -1101,8 +1101,8 @@ function DiscoverTab({
                     </p>
                   )}
                   <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] font-mono text-neutral-500">
-                    <span className="text-green-400/80">
-                      {item.seeders} seeds
+                    <span className={item.seeders_approx ? "text-neutral-500" : "text-green-400/80"}>
+                      {item.seeders_approx ? `~${item.seeders}` : item.seeders} seeds
                     </span>
                     <span>{formatBytes(item.size_mb * 1024 * 1024)}</span>
                     <span>{item.indexer}</span>

@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, memo, useMemo, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { useChat } from "@/lib/hooks/useChat";
-import { getDeepAgentModels } from "@/lib/api";
-import type { StreamEvent, ToolCallInfo, ModelInfo } from "@/lib/types";
+import { getDeepAgentModels, getEntities } from "@/lib/api";
+import { GenUIRenderer } from "@/lib/generative-ui";
+import type { EntityLookup } from "@/lib/generative-ui";
+import type { StreamEvent, ToolCallInfo, ModelInfo, EntityInfo, EntitiesResponse } from "@/lib/types";
 
 const Markdown = memo(function Markdown({ content }: { content: string }) {
   return (
@@ -172,12 +174,30 @@ export default function ChatWidget({
   const prevMsgCount = useRef(0);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [entitiesData, setEntitiesData] = useState<EntitiesResponse | null>(null);
+
+  const entityLookup: EntityLookup = useCallback(
+    (id: string) => {
+      if (!entitiesData) return undefined;
+      for (const group of Object.values(entitiesData.domains)) {
+        const found = group.entities.find((e: EntityInfo) => e.entity_id === id);
+        if (found) return found;
+      }
+      return undefined;
+    },
+    [entitiesData],
+  );
+
+  const refreshEntities = useCallback(() => {
+    getEntities().then(setEntitiesData).catch(() => {});
+  }, []);
 
   useEffect(() => {
     getDeepAgentModels()
       .then((data) => setAvailableModels(data.models))
       .catch(() => {});
-  }, []);
+    refreshEntities();
+  }, [refreshEntities]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -268,9 +288,20 @@ export default function ChatWidget({
                     />
                   </div>
                 ))}
-                <div className="max-w-[90%] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-neutral-200">
-                  <Markdown content={msg.content} />
-                </div>
+                {msg.uiSpec && (
+                  <div className="max-w-[95%] rounded-lg bg-white/[0.03] border border-cyber-yellow/20 p-3">
+                    <GenUIRenderer
+                      spec={msg.uiSpec}
+                      entityLookup={entityLookup}
+                      onRefresh={refreshEntities}
+                    />
+                  </div>
+                )}
+                {msg.content && (
+                  <div className="max-w-[90%] rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-neutral-200">
+                    <Markdown content={msg.content} />
+                  </div>
+                )}
               </div>
             )}
           </div>

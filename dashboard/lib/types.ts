@@ -147,6 +147,7 @@ export type StreamEventType =
   | "tool_result"
   | "response"
   | "image"
+  | "ui_spec"
   | "error"
   | "done";
 
@@ -159,6 +160,7 @@ export interface StreamEvent {
   id?: string;
   filename?: string;
   path?: string;
+  spec?: { root: string; elements: Record<string, unknown> };
 }
 
 export interface ChatMessage {
@@ -166,6 +168,7 @@ export interface ChatMessage {
   content: string;
   toolCalls?: ToolCallInfo[];
   images?: string[];
+  uiSpec?: { root: string; elements: Record<string, unknown> };
   timestamp: number;
 }
 
@@ -214,7 +217,8 @@ export type WidgetType =
   | "presence"
   | "power_chart"
   | "bandwidth_chart"
-  | "smart_plug";
+  | "smart_plug"
+  | "generative";
 
 export interface DashboardWidget {
   id: string;
@@ -640,6 +644,7 @@ export interface DiscoverItem {
   score: number;
   quality: string;
   seeders: number;
+  seeders_approx?: boolean;
   peers: number;
   size_mb: number;
   download_url: string;

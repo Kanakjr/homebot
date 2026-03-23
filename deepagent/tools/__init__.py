@@ -2,7 +2,7 @@
 
 
 def get_all_tools() -> list:
-    """Return all tools: HA + media services."""
+    """Return all tools: HA + media services + generative UI."""
     from .homeassistant import get_ha_tools
     from .sonarr import get_sonarr_tools
     from .radarr import get_radarr_tools
@@ -10,6 +10,7 @@ def get_all_tools() -> list:
     from .transmission import get_transmission_tools
     from .jellyseerr import get_jellyseerr_tools
     from .prowlarr import get_prowlarr_tools
+    from .render_ui import get_render_ui_tools
 
     return (
         get_ha_tools()
@@ -19,4 +20,5 @@ def get_all_tools() -> list:
         + get_transmission_tools()
         + get_jellyseerr_tools()
         + get_prowlarr_tools()
+        + get_render_ui_tools()
     )

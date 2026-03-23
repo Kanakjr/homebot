@@ -5,17 +5,24 @@ import { BlurFade } from "@/components/magicui/blur-fade";
 import StatusBadge from "@/components/StatusBadge";
 import DashboardRenderer from "@/components/DashboardRenderer";
 import DashboardAssistant from "@/components/DashboardAssistant";
+import WidgetBuilder from "@/components/WidgetBuilder";
+import WidgetEditModal from "@/components/WidgetEditModal";
 import PresenceBar from "@/components/PresenceBar";
 import { AiSummaryBanner } from "@/components/widgets";
-import { getHealth, getDashboardConfig } from "@/lib/api";
+import { getHealth, getDashboardConfig, saveDashboardConfig } from "@/lib/api";
 import { useEntities } from "@/lib/hooks/useEntities";
-import type { HealthResponse, DashboardConfig } from "@/lib/types";
+import type { HealthResponse, DashboardConfig, DashboardWidget, WidgetSize } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [config, setConfig] = useState<DashboardConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { data: entitiesData, refresh: refreshEntities } = useEntities(15_000);
+
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editingWidget, setEditingWidget] = useState<DashboardWidget | null>(null);
 
   useEffect(() => {
     getHealth()
@@ -31,6 +38,61 @@ export default function DashboardPage() {
     setConfig(newConfig);
   }, []);
 
+  const persistConfig = useCallback(
+    async (updated: DashboardConfig) => {
+      setConfig(updated);
+      try {
+        await saveDashboardConfig(updated);
+      } catch {
+        // revert on failure
+        const fresh = await getDashboardConfig().catch(() => null);
+        if (fresh) setConfig(fresh);
+      }
+    },
+    [],
+  );
+
+  const handleReorder = useCallback(
+    (widgetIds: string[]) => {
+      if (!config) return;
+      const lookup = new Map(config.widgets.map((w) => [w.id, w]));
+      const reordered = widgetIds
+        .map((id) => lookup.get(id))
+        .filter(Boolean) as DashboardWidget[];
+      persistConfig({ ...config, widgets: reordered });
+    },
+    [config, persistConfig],
+  );
+
+  const handleDelete = useCallback(
+    (widgetId: string) => {
+      if (!config) return;
+      const filtered = config.widgets.filter((w) => w.id !== widgetId);
+      persistConfig({ ...config, widgets: filtered });
+    },
+    [config, persistConfig],
+  );
+
+  const handleEditWidget = useCallback(
+    (widgetId: string) => {
+      if (!config) return;
+      const widget = config.widgets.find((w) => w.id === widgetId);
+      if (widget) setEditingWidget(widget);
+    },
+    [config],
+  );
+
+  const handleSaveWidget = useCallback(
+    (update: { id: string; title: string; size: WidgetSize }) => {
+      if (!config) return;
+      const updated = config.widgets.map((w) =>
+        w.id === update.id ? { ...w, title: update.title, size: update.size } : w,
+      );
+      persistConfig({ ...config, widgets: updated });
+    },
+    [config, persistConfig],
+  );
+
   return (
     <div className="relative p-4 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 max-w-7xl">
       <BlurFade delay={0}>
@@ -43,7 +105,26 @@ export default function DashboardPage() {
               HomeBotAI
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {config && config.widgets.length > 0 && (
+              <button
+                onClick={() => setEditMode((v) => !v)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                  editMode
+                    ? "border-cyber-yellow/40 bg-cyber-yellow/15 text-cyber-yellow"
+                    : "border-white/10 bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10",
+                )}
+              >
+                {editMode ? "Done" : "Edit"}
+              </button>
+            )}
+            <button
+              onClick={() => setBuilderOpen(true)}
+              className="rounded-lg border border-cyber-yellow/20 bg-cyber-yellow/5 px-3 py-1.5 text-xs font-medium text-cyber-yellow hover:bg-cyber-yellow/15 transition-colors"
+            >
+              + Add Widget
+            </button>
             {health && (
               <StatusBadge
                 status={health.status === "ok" ? "ok" : "error"}
@@ -69,6 +150,10 @@ export default function DashboardPage() {
             config={config}
             entitiesData={entitiesData}
             onRefresh={refreshEntities}
+            editMode={editMode}
+            onReorder={handleReorder}
+            onDelete={handleDelete}
+            onEditWidget={handleEditWidget}
           />
         ) : (
           <div className="flex items-center justify-center py-20 text-neutral-500">
@@ -78,6 +163,18 @@ export default function DashboardPage() {
       </BlurFade>
 
       <DashboardAssistant onConfigUpdate={handleConfigUpdate} />
+      <WidgetBuilder
+        open={builderOpen}
+        onClose={() => setBuilderOpen(false)}
+        entitiesData={entitiesData}
+        onConfigUpdate={handleConfigUpdate}
+      />
+      <WidgetEditModal
+        widget={editingWidget}
+        open={editingWidget !== null}
+        onClose={() => setEditingWidget(null)}
+        onSave={handleSaveWidget}
+      />
     </div>
   );
 }
