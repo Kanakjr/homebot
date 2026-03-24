@@ -125,26 +125,6 @@ img[src*="screenshots"]:hover {
   border-color: var(--md-primary-fg-color);
 }
 
-/* ── Announcement bar ────────────────────────────────────────────── */
-
-.md-banner {
-  background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
-  color: #fff;
-  font-weight: 500;
-  font-size: 0.82rem;
-  letter-spacing: 0.01em;
-}
-
-.md-banner a {
-  color: #E9D5FF;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.md-banner a:hover {
-  color: #fff;
-}
-
 /* ── Footer ──────────────────────────────────────────────────────── */
 
 [data-md-color-scheme="default"] .md-footer {

@@ -42,7 +42,6 @@ theme:
     - search.suggest
     - content.code.copy
     - content.tabs.link
-    - announce.dismiss
 
 markdown_extensions:
   - admonition
