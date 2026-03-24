@@ -65,6 +65,39 @@ function authHeaders(extra?: HeadersInit): HeadersInit {
   };
 }
 
+async function* parseSSEStream(
+  res: Response,
+  _signal?: AbortSignal,
+): AsyncGenerator<{ type: string; data: string }> {
+  const reader = res.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventType = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (line.startsWith("event: ")) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith("data: ")) {
+        const data = line.slice(6);
+        if (eventType) {
+          yield { type: eventType, data };
+          eventType = "";
+        }
+      }
+    }
+  }
+}
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
@@ -101,33 +134,7 @@ export async function* streamChatEvents(
     throw new Error(`API ${res.status}: ${await res.text()}`);
   }
 
-  const reader = res.body?.getReader();
-  if (!reader) return;
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    let eventType = "";
-    for (const line of lines) {
-      if (line.startsWith("event: ")) {
-        eventType = line.slice(7).trim();
-      } else if (line.startsWith("data: ")) {
-        const data = line.slice(6);
-        if (eventType) {
-          yield { type: eventType, data };
-          eventType = "";
-        }
-      }
-    }
-  }
+  yield* parseSSEStream(res, signal);
 }
 
 /**
@@ -156,33 +163,7 @@ export async function* streamDeepAgentEvents(
     throw new Error(`Deep Agent API ${res.status}: ${await res.text()}`);
   }
 
-  const reader = res.body?.getReader();
-  if (!reader) return;
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    let eventType = "";
-    for (const line of lines) {
-      if (line.startsWith("event: ")) {
-        eventType = line.slice(7).trim();
-      } else if (line.startsWith("data: ")) {
-        const data = line.slice(6);
-        if (eventType) {
-          yield { type: eventType, data };
-          eventType = "";
-        }
-      }
-    }
-  }
+  yield* parseSSEStream(res, signal);
 }
 
 export function getSnapshotUrl(filename: string): string {

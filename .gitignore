@@ -56,3 +56,4 @@ docker-compose.override.yml
 .cursor/
 .smbdelete*
 transcoder/data/
+youtube-series/
