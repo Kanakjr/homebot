@@ -11,99 +11,118 @@ This document describes the full architecture of **HomeBotAI**: the FastAPI back
 
 HomeBotAI is a multi-service stack: a primary **Backend API** (agent, memory, tools, Home Assistant integration), a **Dashboard** for operators, a **Telegram** entry point, a **Deep Agent** API for specialized long-running tasks, and a **Transcoder** for media jobs. **SQLite** backs persistence for chat history, semantic facts, skills, and dashboard configuration.
 
+### Service topology
+
+Users reach HomeBotAI through the **Dashboard** or **Telegram**. Requests flow into three core services that share a persistence layer and fan out to external integrations.
+
 ```mermaid
-flowchart TB
-  subgraph Clients["Clients"]
-    DASH["Dashboard\nNext.js :3001"]
-    TG["Telegram Bot\nmain.py"]
+graph LR
+  subgraph users [Users]
+    Browser
+    TelegramApp[Telegram]
   end
 
-  subgraph APIs["HTTP APIs"]
-    BE["Backend API\nFastAPI :8321"]
-    DA["Deep Agent API\nFastAPI :8322"]
-    TC["Transcoder\nFastAPI"]
+  subgraph surfaces [Client Surfaces]
+    Dashboard["Dashboard :3001"]
+    TGBot["Telegram Bot"]
   end
 
-  subgraph BackendCore["Backend internals"]
-    LG["LangGraph Agent"]
-    SC["State Cache"]
-    RE["Reactor"]
-    NT["Notifier"]
-    MEM3["Memory\n3-layer"]
-    T59["Tools\n59 total"]
+  subgraph core [Core Services]
+    Backend["Backend API :8321"]
+    DeepAgent["Deep Agent :8322"]
+    TranscoderSvc["Transcoder"]
   end
 
-  subgraph DeepCore["Deep Agent internals"]
-    LDA["LangGraph Deep Agent"]
-    T49["49 tools"]
-    SK["SKILL.md skills"]
-  end
-
-  subgraph TCMod["Transcoder modules"]
-    HB["HandBrake"]
-    SCN["Scanner"]
-    SCH["Scheduler"]
-  end
-
-  subgraph External["Service integrations"]
+  subgraph integrations [Integrations]
     HA["Home Assistant"]
-    SON["Sonarr"]
-    RAD["Radarr"]
-    TRN["Transmission"]
-    JSR["Jellyseerr"]
-    PRW["Prowlarr"]
-    JF["Jellyfin"]
-    OLL["Ollama"]
+    MediaStack["Media Stack\nSonarr / Radarr / Jellyfin\nTransmission / Jellyseerr / Prowlarr"]
+    Ollama["Ollama"]
   end
 
-  subgraph Persistence["Persistence"]
-    SQL["SQLite"]
-  end
+  SQLite[(SQLite)]
 
-  DASH --> BE
-  DASH --> DA
-  TG --> BE
-
-  BE --> LG
-  BE --> SC
-  BE --> RE
-  BE --> NT
-  BE --> MEM3
-  BE --> T59
-
-  DA --> LDA
-  LDA --> T49
-  LDA --> SK
-
-  TC --> HB
-  TC --> SCN
-  TC --> SCH
-
-  BE --- HA
-  BE --- SON
-  BE --- RAD
-  BE --- TRN
-  BE --- JSR
-  BE --- PRW
-  BE --- JF
-  BE --- OLL
-
-  DA --- HA
-  DA --- SON
-  DA --- RAD
-  DA --- TRN
-  DA --- JSR
-  DA --- PRW
-  DA --- JF
-  DA --- OLL
-
-  BE --> SQL
-  DA --> SQL
-  TC --> SQL
+  Browser --> Dashboard
+  TelegramApp --> TGBot
+  TGBot --> Backend
+  Dashboard --> Backend
+  Dashboard --> DeepAgent
+  Backend <--> HA
+  Backend <--> MediaStack
+  Backend <--> Ollama
+  DeepAgent <--> HA
+  DeepAgent <--> MediaStack
+  DeepAgent <--> Ollama
+  TranscoderSvc --> MediaStack
+  Backend --> SQLite
+  DeepAgent --> SQLite
+  TranscoderSvc --> SQLite
 ```
 
 !!! note "Ports and roles"
     The dashboard talks to the Backend on **8321** and the Deep Agent on **8322** for different workloads. The Telegram bot uses the Backend only. The Transcoder exposes its own FastAPI surface for library browsing and job control.
+
+### Chat request lifecycle
+
+A single user message triggers a multi-step pipeline: context assembly, ReAct reasoning with tool calls, and streamed response delivery.
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant D as Dashboard
+  participant API as Backend API
+  participant Mem as Memory
+  participant Agent as LangGraph Agent
+  participant LLM as Gemini / Ollama
+  participant Tools as Tool Registry
+  participant HA as Home Assistant
+
+  U ->> D: sends message
+  D ->> API: POST /api/chat/stream
+  API ->> Mem: load episodic + semantic context
+  API ->> Agent: invoke with state + history
+  Agent ->> LLM: prompt with system context
+  LLM -->> Agent: tool_call decision
+  Agent ->> Tools: execute tool
+  Tools ->> HA: call service / get state
+  HA -->> Tools: result
+  Tools -->> Agent: tool_result
+  Agent ->> LLM: continue reasoning
+  LLM -->> Agent: final response
+  Agent -->> API: SSE stream events
+  API -->> D: thinking | tool_call | response
+  D -->> U: renders streamed reply
+```
+
+### Agent internals
+
+The backend brain assembles a grounded system prompt from three sources, then enters a ReAct loop that alternates between LLM reasoning and tool execution until it can produce a final answer.
+
+```mermaid
+graph TB
+  subgraph prompt [System Prompt Construction]
+    StateCache["State Cache\nfiltered HA entities"]
+    SemanticMem["Semantic Memory\nuser preferences"]
+    ProceduralMem["Learned Skills\nprocedural memory"]
+  end
+
+  subgraph react [ReAct Loop]
+    LLM["LLM\nGemini / Ollama"]
+    Decide{Think or Act}
+    ToolExec["Tool Execution\n59 tools"]
+  end
+
+  subgraph output [Output]
+    SSE["SSE Stream\nthinking | tool_call | response"]
+  end
+
+  StateCache --> LLM
+  SemanticMem --> LLM
+  ProceduralMem --> LLM
+  LLM --> Decide
+  Decide -->|"needs data"| ToolExec
+  ToolExec --> LLM
+  Decide -->|"ready"| SSE
+```
 
 ---
 

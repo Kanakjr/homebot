@@ -72,13 +72,13 @@ Explore the surfaces HomeBotAI ships today: configurable dashboards, deep integr
 
 -   **Widget builder**
 
-    ![Generative widget tooling](assets/screenshots/tools.png)
+    ![Generative widget tooling](assets/screenshots/widget-builder.png)
 
     Select entities and let the assistant generate dashboard widgets using generative UI patterns that match your data types. You iterate in plain language instead of hand-authoring component props for every new sensor.
 
 -   **Media discovery**
 
-    ![Recommendations and discovery analytics](assets/screenshots/analytics.png)
+    ![Recommendations and discovery analytics](assets/screenshots/media.png)
 
     Surface what to watch next with Ollama-powered recommendations grounded in your library and habits. It keeps discovery local and aligned with what you actually own and prefer.
 
@@ -96,13 +96,13 @@ Explore the surfaces HomeBotAI ships today: configurable dashboards, deep integr
 
 -   **Proactive notifications**
 
-    ![Telegram-oriented alerts](assets/screenshots/chat.png)
+    ![Telegram-oriented alerts](assets/screenshots/settings.png)
 
     Receive Telegram alerts for printer jobs finishing, batteries running low, or welcome-home sequences after geofenced arrival. Proactive pushes beat polling dashboards when timing matters.
 
 -   **AI digests**
 
-    ![Summaries and scheduled reports](assets/screenshots/reports.png)
+    ![Summaries and scheduled reports](assets/screenshots/skills.png)
 
     Schedule daily or weekly AI digests that summarize notable events, anomalies, and trends straight to Telegram. It is executive briefing mode for a home lab or busy household.
 
@@ -114,7 +114,7 @@ Explore the surfaces HomeBotAI ships today: configurable dashboards, deep integr
 
 -   **Local LLM support**
 
-    ![Memory and local model context](assets/screenshots/memory.png)
+    ![Memory and local model context](assets/screenshots/chat-llm.png)
 
     Run compatible workloads through Ollama for local inference when you want offline or privacy-preserving paths. Swap models without redesigning skills as long as the tool contracts stay stable.
 
