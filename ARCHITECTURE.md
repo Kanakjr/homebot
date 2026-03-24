@@ -2,45 +2,90 @@
 
 ## System Overview
 
-```
-                        +------------------+
-                        |    Telegram Bot   |
-                        |    (main.py)      |
-                        +--------+---------+
-                                 |
-                                 v
-+------------------+    +--------+---------+    +------------------+
-|   Dashboard UI   +--->|   FastAPI / API   |<---+   CLI (Rich)     |
-|   (Next.js)      |    |   (api.py)        |    |   (cli.py)       |
-|   :3001          |    |   :8321           |    |                  |
-+------------------+    +--------+---------+    +------------------+
-                                 |
-                        +--------+---------+
-                        |    LangGraph      |
-                        |    ReAct Agent    |
-                        |    (agent.py)     |
-                        +--------+---------+
-                                 |
-              +------------------+------------------+
-              |                  |                  |
-     +--------+------+  +-------+-------+  +-------+-------+
-     |   Memory      |  |   Tools       |  |   Reactor     |
-     |   (3-layer)   |  |   (30 tools)  |  |   (auto-act)  |
-     +---------------+  +-------+-------+  +---------------+
-                                |
-     +--------+---------+-------+-------+---------+--------+
-     |        |         |       |       |         |        |
-  +--+--+ +----+--+ +--+--+ +--+---+ +---+--+ +---+--+
-  | HA  | | Sonarr| |Trans| |Jelly- | |Prow- | |Jelly-|
-  |     | |       | |miss.| |seerr  | |larr  | |fin   |
-  +-----+ +-------+ +-----+ +------+ +------+ +------+
+HomeBotAI ties a Next.js dashboard, Telegram bot, and optional CLI to a FastAPI backend that runs a LangGraph ReAct agent with layered memory, Home Assistant state mirroring, scheduled and reactive automations, and a large tool surface for media and home control. A separate Deep Agent service exposes an alternate agent stack with its own tool modules. A Transcoder service handles library scans and HandBrake jobs. SQLite backs conversational and app data; external APIs cover Home Assistant, *arr stack, Jellyfin, and optional local LLMs.
+
+```mermaid
+flowchart TB
+  subgraph clients["Clients"]
+    D["Dashboard<br/>Next.js :3001"]
+    TG["Telegram Bot"]
+  end
+
+  subgraph backend["Backend API :8321"]
+    API["FastAPI"]
+    LG["LangGraph Agent"]
+    SC["State Cache"]
+    RX["Reactor"]
+    NT["Notifier"]
+    MEM["Memory"]
+    T59["59 Tools"]
+  end
+
+  subgraph deep["Deep Agent API :8322"]
+    DA["Deep Agent"]
+    T49["49 Tools"]
+    SK["SKILL.md Skills"]
+  end
+
+  subgraph tc["Transcoder"]
+    TRS["Transcoder"]
+    HB["HandBrake"]
+    SCN["Scanner"]
+    SCH["Scheduler"]
+  end
+
+  subgraph ext["External Services"]
+    HA["Home Assistant"]
+    SON["Sonarr"]
+    RAD["Radarr"]
+    TRN["Transmission"]
+    JSL["Jellyseerr"]
+    PRW["Prowlarr"]
+    JF["Jellyfin"]
+    OLL["Ollama"]
+  end
+
+  SQL[("SQLite<br/>persistence")]
+
+  D --> API
+  D --> DA
+  TG --> API
+
+  API --> LG
+  API --> SC
+  API --> RX
+  API --> NT
+  API --> MEM
+  API --> T59
+
+  DA --> T49
+  DA --> SK
+
+  TRS --> HB
+  TRS --> SCN
+  TRS --> SCH
+
+  LG --> HA
+  SC --> HA
+  T59 --> HA
+  T59 --> SON
+  T59 --> RAD
+  T59 --> TRN
+  T59 --> JSL
+  T59 --> PRW
+  T59 --> JF
+  DA --> HA
+  DA --> OLL
+  LG --> OLL
+
+  API --> SQL
+  MEM --> SQL
+  TRS --> SQL
 ```
 
 ## Backend
 
 ### Entry Points
-
-All three entry points share initialization via `bootstrap.py`:
 
 | Entry Point | File | Purpose | Transport |
 |-------------|------|---------|-----------|
@@ -48,25 +93,16 @@ All three entry points share initialization via `bootstrap.py`:
 | API | `api.py` | REST + SSE for dashboard/testing | HTTP (:8321) |
 | CLI | `cli.py` | Developer interactive REPL | stdin/stdout |
 
-`bootstrap.py` provides `create_app()` which initializes memory stores, registers all 35 tools, builds the LangGraph agent, and optionally connects the HA WebSocket state cache.
+`bootstrap.py` provides `create_app()` which initializes memory stores, registers all 59 tools, builds the LangGraph agent, and connects the HA WebSocket state cache.
 
 ### Agent (agent.py)
 
-- Model: `gemini-2.5-flash` via `langchain-google-genai`
+- Model: `gemini-2.5-flash` via `langchain-google-genai`, with Ollama support via `llm.py`
 - Orchestration: `langgraph.prebuilt.create_react_agent` (ReAct loop)
-- System prompt: dynamically built per request with live HA state, learned skills, and semantic memory
-- State summary: relevance-filtered (only notable entities -- active lights, climate, useful sensors, playing media)
-- History: last 10 conversation turns from episodic memory
-- Streaming: `run_stream()` async generator yields typed events (`thinking`, `tool_call`, `tool_result`, `response`, `error`)
+- System prompt: dynamically built with live HA state, learned skills, semantic memory
+- Streaming: `run_stream()` yields typed events
 
 ### Memory (3-Layer)
-
-```
-memory/
-  episodic.py    Conversation history per chat_id (SQLite, max 50 turns)
-  semantic.py    Facts and preferences (key-value store in SQLite)
-  procedural.py  Learned skills, event log (SQLite)
-```
 
 | Layer | Purpose | Storage | Lifecycle |
 |-------|---------|---------|-----------|
@@ -74,58 +110,62 @@ memory/
 | Semantic | User prefs, facts | SQLite key-value | Persistent |
 | Procedural | Skills, routines | SQLite + event log | User-managed |
 
-### Tools (30 registered)
+### Tools (59 registered)
 
-| Category | Count | Tools | Source |
-|----------|-------|-------|--------|
+| Category | Count | Key Tools | Source |
+|----------|-------|-----------|--------|
 | Home Assistant | 4 | `ha_call_service`, `ha_get_camera_snapshot`, `ha_trigger_automation`, `ha_fire_event` | `tools/homeassistant.py` |
 | Skills | 7 | `create_skill`, `execute_skill`, `list_skills`, `update_skill`, `delete_skill`, `toggle_skill`, `get_event_log` | `tools/skills.py` |
 | Memory | 2 | `remember`, `recall` | `tools/memory_tools.py` |
-| Sonarr | 4 | `sonarr_search`, `sonarr_add_series`, `sonarr_list_series`, `sonarr_upcoming` | `tools/sonarr.py` |
-| Transmission | 4 | `transmission_get_torrents`, `transmission_add_torrent`, `transmission_remove_torrent`, `transmission_pause_resume` | `tools/transmission.py` |
-| Jellyseerr | 3 | `jellyseerr_search`, `jellyseerr_request`, `jellyseerr_get_requests` | `tools/jellyseerr.py` |
-| Prowlarr | 3 | `prowlarr_search`, `prowlarr_get_indexers`, `prowlarr_get_indexer_stats` | `tools/prowlarr.py` |
-| Jellyfin | 5 | `jellyfin_search`, `jellyfin_get_libraries`, `jellyfin_get_latest`, `jellyfin_get_sessions`, `jellyfin_system_info` | `tools/jellyfin.py` |
+| Scenes | 3 | `create_scene`, `activate_scene`, `delete_scene` | `tools/scenes.py` |
+| Sonarr | 8 | `sonarr_search`, `sonarr_add_series`, +6 more | `tools/sonarr.py` |
+| Radarr | 8 | `radarr_search`, `radarr_add_movie`, +6 more | `tools/radarr.py` |
+| Transmission | 8 | `transmission_get_torrents`, `transmission_add_torrent`, +6 more | `tools/transmission.py` |
+| Jellyseerr | 5 | `jellyseerr_search`, `jellyseerr_request`, +3 more | `tools/jellyseerr.py` |
+| Prowlarr | 5 | `prowlarr_search`, `prowlarr_get_indexers`, +3 more | `tools/prowlarr.py` |
+| Jellyfin | 9 | `jellyfin_search`, `jellyfin_playback_control`, +7 more | `tools/jellyfin.py` |
 
 ### State Cache (state.py)
 
-Maintains a live in-memory mirror of all Home Assistant entities via WebSocket subscription. The agent never needs an API call to read state -- it gets a relevance-filtered summary injected into the system prompt.
-
-Filtering strategy:
-- Always: persons, weather, lights (on), active climate/fans, playing media
-- Sensors: only temperature, humidity, PM2.5, AQI, power, energy, battery (< 30%)
-- Skips: internal HA entities, 3D printer internals (unless printing), config entities
+Live in-memory mirror of HA entities via WebSocket. Context-aware filtering, anomaly detection, recent changes tracking.
 
 ### Reactor (reactor.py)
 
-Proactive automation engine with two trigger types:
-- **Schedule**: cron-based jobs via APScheduler
-- **State change**: HA entity state transitions (e.g., motion detected, door opened)
+Schedule triggers (cron via APScheduler) and state change triggers. Skills define triggers the reactor monitors.
 
-Skills can define triggers that the reactor monitors. When triggered, skills execute either static tool sequences or AI-driven responses.
+### Notifier (notifier.py)
 
-### API Endpoints (api.py)
+Proactive Telegram notifications: printer finished, battery low (<15%), welcome/left home. 5-minute cooldown per entity.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/chat` | Blocking chat, returns full response + tool calls |
-| POST | `/api/chat/stream` | SSE stream of real-time events |
-| GET | `/api/health` | System status (tools, entities, model) |
-| GET | `/api/tools` | List all registered tools |
-| GET | `/api/skills` | List learned skills |
-| GET | `/api/entities` | Entity summary grouped by domain |
+### LLM Module (llm.py)
+
+Provider abstraction for Google GenAI and Ollama. Used for skill execution, dashboard summaries, media discovery.
+
+### API Endpoints (65+ routes)
+
+Brief table of endpoint groups:
+
+| Group | Count | Key Paths |
+|-------|-------|-----------|
+| Chat | 5 | `/api/chat`, `/api/chat/stream`, `/api/chat/threads` |
+| Skills | 6 | `/api/skills`, `/api/skills/{id}/execute` |
+| Entities | 4 | `/api/entities`, `/api/entities/{id}/toggle` |
+| Dashboard | 6 | `/api/dashboard`, `/api/dashboard/edit`, `/api/generate-widget` |
+| Media | 9 | `/api/media/overview`, `/api/media/search`, `/api/media/discover` |
+| Scenes | 4 | `/api/scenes`, `/api/scenes/{id}/activate` |
+| Server | 5 | `/api/server/containers`, `/api/server/tunnel` |
+| Others | 26+ | health, tools, events, memory, cameras, network, energy, analytics, reports, floorplan, aliases, notifications |
+
+Full reference: see [API Reference](docs/api-reference.md) or Swagger at http://localhost:8321/docs
 
 ### Configuration (config.py)
 
-Loads environment variables from `.env` via `python-dotenv`. Handles SSL certificate merging for macOS (combines keychain CAs with `certifi` bundle) to work behind corporate proxies.
+Loads `.env` via python-dotenv. Handles SSL certificate merging for macOS.
 
 ### Testing
 
-```
-tests/
-  test_agent.py      Agent integration tests (requires Gemini API key)
-  test_services.py   Service connectivity tests (Transmission, Jellyseerr, Prowlarr, Jellyfin)
-```
+- `tests/backend/` -- Agent and service connectivity tests
+- `tests/llm/` -- LLM benchmark and tool calling test suites
 
 ## Dashboard
 
@@ -137,54 +177,34 @@ tests/
 | TypeScript | 5 | Type safety |
 | Tailwind CSS | 3.4 | Styling |
 | Framer Motion | 11 | Animations |
-| Magic UI | -- | Bento grid, cards, effects |
-| next-themes | 0.4 | Dark mode |
+| react-grid-layout | -- | Drag-and-drop widget layout |
 
-### Design System
+### Pages (18)
 
-Shared with the portfolio site (kanakjr_website_26):
+| Route | Purpose |
+|-------|---------|
+| `/` | Dashboard -- AI-customizable widget grid |
+| `/chat` | AI conversation with SSE streaming |
+| `/devices` | Entity browser (domain filters, search) |
+| `/cameras` | Live camera snapshots |
+| `/activity` | Event log with filters |
+| `/energy` | Power/energy charts, battery levels |
+| `/network` | Mesh nodes, clients, bandwidth |
+| `/media` | Unified media management |
+| `/health` | Wearable health metrics |
+| `/analytics` | Historical trends |
+| `/reports` | Long-term data summaries |
+| `/skills` | Skill manager with triggers |
+| `/home-map` | Interactive SVG floorplan |
+| `/memory` | Semantic memory facts |
+| `/tools` | Tool reference by category |
+| `/settings` | Notification rules, aliases |
+| `/server` | Docker, Cloudflare, backups |
+| `/transcoder` | Library browser, transcode jobs |
 
-- **Background**: `#0a0a0a`
-- **Primary**: `#FFD700` (cyber-yellow)
-- **Secondary**: `#FF4500` (retro-red)
-- **Fonts**: Geist Sans (body), Geist Mono (headings/code)
-- **Theme**: Dark-only, HSL CSS variables for semantic tokens
+### Widget System
 
-### Pages
-
-| Route | Purpose | Backend Endpoint |
-|-------|---------|-----------------|
-| `/` | Dashboard home -- bento grid with stats, sensors, quick chat | `/api/health`, `/api/entities` |
-| `/chat` | Full-page AI chat with SSE streaming | `/api/chat/stream` |
-| `/devices` | Entity browser -- 280 entities, domain filters, search | `/api/entities` |
-| `/skills` | Skill manager -- list, view triggers, teach via chat | `/api/skills` |
-| `/tools` | Tool reference -- 35 tools grouped by category | `/api/tools` |
-
-### Frontend Architecture
-
-```
-dashboard/
-  app/
-    layout.tsx       Root layout (ThemeProvider, Sidebar, Geist fonts)
-    page.tsx         Dashboard home (stats, sensors, quick chat)
-    chat/page.tsx    Full AI chat page
-    devices/page.tsx Entity browser
-    skills/page.tsx  Skills manager
-    tools/page.tsx   Tools reference
-  components/
-    Sidebar.tsx      Navigation sidebar with backend status
-    ChatWidget.tsx   Reusable chat interface (used on / and /chat)
-    EntityCard.tsx   Individual entity display card
-    StatusBadge.tsx  Status indicator component
-    magicui/         Copied subset of Magic UI components
-  lib/
-    api.ts           API client (fetchJSON, SSE streaming)
-    types.ts         TypeScript interfaces for API responses
-    utils.ts         cn() class merge utility
-    hooks/
-      useChat.ts     Chat state + SSE streaming hook
-      useEntities.ts Entity fetching + polling hook
-```
+19 widget components rendered by `DashboardRenderer` from JSON config. `WidgetBuilder` for AI-powered creation via generative UI. react-grid-layout for drag-and-drop positioning.
 
 ### Data Flow: Chat Request
 
@@ -213,11 +233,17 @@ Backend: agent.run_stream() starts LangGraph ReAct loop
 SSE stream closes, chat turn complete
 ```
 
-### State Management
+## Deep Agent
 
-- **Server state** (entities, health, tools, skills): fetched via API, polled or refreshed on page focus
-- **Chat state**: client-side only (messages array in React state), streamed via SSE
-- **No client-side database**: all persistence lives in the backend SQLite
+Standalone LangChain Deep Agent service on port 8322. 49 tools across 8 modules (HA, Sonarr, Radarr, Jellyfin, Transmission, Jellyseerr, Prowlarr, Render UI). SKILL.md skills for progressive disclosure. Model policy routes between Google GenAI and Ollama.
+
+See [Deep Agent docs](docs/deep-agent.md) for full details.
+
+## Transcoder
+
+HandBrake-based media transcoding service. Library scanning, job management, preset system, scheduled scans. FastAPI with its own SQLite database.
+
+See [Transcoder docs](docs/transcoder.md) for full details.
 
 ## Docker Deployment
 
@@ -225,29 +251,27 @@ SSE stream closes, chat turn complete
 homebot:
   build: ./backend
   env_file: ./backend/.env
-  volumes:
-    - ./backend/data:/app/data
-  ports:
-    - "8321:8321"
+  volumes: ["./backend/data:/app/data"]
+  ports: ["8321:8321"]
 
 homebot-dashboard:
   build: ./dashboard
   environment:
     - NEXT_PUBLIC_API_URL=http://homebot:8321
-  ports:
-    - "3001:3000"
-  depends_on:
-    - homebot
+  ports: ["3001:3000"]
+  depends_on: [homebot]
+
+homebot-deepagent:
+  build: ./deepagent
+  env_file: ./deepagent/.env
+  ports: ["8322:8322"]
+
+transcoder:
+  build: ./transcoder
+  env_file: ./transcoder/.env
+  volumes: ["./transcoder/data:/app/data", "/path/to/media:/media"]
 ```
 
-Both services run on the same Docker network. The dashboard resolves `homebot` by container name for server-side requests, while client-side JavaScript uses `NEXT_PUBLIC_API_URL` (set to the externally reachable backend URL in production).
+## Documentation
 
-## Phase 2 (Future)
-
-- Activity timeline / event log visualization
-- AI summary reports (daily/weekly digests)
-- Visual automation builder (drag-and-drop skill creation)
-- Camera feeds (snapshots from HA cameras)
-- Media controls (Jellyfin playback widgets, Transmission torrent management)
-- Push notifications via service worker
-- Mobile-responsive adaptive layout
+Full documentation site: https://kanakjr.github.io/homebot/

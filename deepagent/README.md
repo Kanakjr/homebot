@@ -14,7 +14,7 @@ Dashboard (Next.js)
 Deep Agent API  (FastAPI, port 8322)
     |
     |-- agent.py        LangGraph agent with system prompt, skills, tools
-    |-- tools/          43 async tool functions across 7 modules
+    |-- tools/          49 async tool functions across 8 modules
     |-- skills/         4 SKILL.md files (progressive disclosure)
     |-- config.py       Environment-based configuration
     |
@@ -25,7 +25,7 @@ Deep Agent API  (FastAPI, port 8322)
 
 The agent uses Server-Sent Events (SSE) to stream responses back to the client, emitting structured events for thinking indicators, tool calls, tool results, and the final natural-language response.
 
-## Tools (43 total)
+## Tools (49 total)
 
 ### Home Assistant (5 tools)
 
@@ -109,6 +109,12 @@ The agent uses Server-Sent Events (SSE) to stream responses back to the client, 
 | `prowlarr_get_indexer_stats` | Get indexer query/grab/failure statistics |
 | `prowlarr_grab_release` | Download a specific release from search results |
 | `prowlarr_get_health` | Check system health and indexer issues |
+
+### Render UI (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `render_ui` | Generate JSON UI specifications for dashboard widget rendering. Produces structured component definitions that the frontend GenUIRenderer interprets into interactive widgets. |
 
 ### Shell
 
@@ -278,6 +284,7 @@ curl -N http://localhost:8322/api/chat/stream \
 | `GOOGLE_API_KEY` | -- | Gemini API key (required) |
 | `MODEL` | `ollama:...` (see `.env.example`) | LLM spec: `google_genai:...` or `ollama:<ollama model name>` |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama HTTP base; in Docker use `http://host.docker.internal:11434` (see root `docker-compose.yml`) |
+| `MEDIA_DISCOVERY_MODEL` | -- | Ollama model used for media discovery recommendations |
 | `HA_URL` | `http://localhost:8123` | Home Assistant URL |
 | `HA_TOKEN` | -- | HA long-lived access token |
 | `SONARR_URL` | `http://localhost:8989` | Sonarr API URL |
@@ -298,6 +305,17 @@ curl -N http://localhost:8322/api/chat/stream \
 | `LANGSMITH_TRACING` | `false` | Enable LangSmith trace logging |
 | `LANGSMITH_PROJECT` | `homebot-deepagent` | LangSmith project name |
 
+## Model Policy
+
+The `model_policy.py` module handles LLM routing between providers:
+
+- **Google GenAI**: Use `MODEL=google_genai:gemini-2.5-flash` (or any Gemini model name)
+- **Ollama**: Use `MODEL=ollama:qwen3.5:4b` (or any model available in your Ollama instance)
+
+The `init_chat_model()` function parses the `MODEL` variable prefix to select the appropriate LangChain chat model class. When using Ollama, the `OLLAMA_URL` variable specifies the server endpoint.
+
+The `/api/models` endpoint returns available models from both providers, with optional size filtering via `DEEPAGENT_MAX_QWEN_B` for Ollama Qwen models.
+
 ## Project Structure
 
 ```
@@ -305,6 +323,7 @@ deepagent/
   api.py              FastAPI server with SSE streaming
   agent.py            Agent builder (system prompt, tools, skills, backend)
   config.py           Environment variable configuration
+  model_policy.py     LLM provider routing (GenAI / Ollama)
   requirements.txt    Python dependencies
   Dockerfile          Container build
   .env.example        Configuration template
@@ -317,6 +336,7 @@ deepagent/
     transmission.py   Transmission RPC tools (8)
     jellyseerr.py     Jellyseerr API tools (5)
     prowlarr.py       Prowlarr API tools (5)
+    render_ui.py      Generative UI spec tool (1)
   skills/
     device-control/SKILL.md
     media-management/SKILL.md

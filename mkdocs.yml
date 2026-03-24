@@ -1,0 +1,62 @@
+site_name: HomeBotAI
+site_url: https://kanakjr.github.io/homebot/
+site_description: Intelligent smart-home assistant powered by LangChain + Gemini, with live Home Assistant awareness, learnable skills, and a modern dashboard.
+repo_url: https://github.com/Kanakjr/homebot
+repo_name: Kanakjr/homebot
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: amber
+    accent: deep orange
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tabs.link
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - glightbox
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Features:
+    - AI Dashboard: features/ai-dashboard.md
+    - Smart Features: features/smart-features.md
+    - Media Discovery: features/media-discovery.md
+  - Deep Agent: deep-agent.md
+  - Transcoder: transcoder.md
+  - API Reference: api-reference.md
+  - LLM Benchmarks: benchmarks.md
+  - Roadmap: roadmap.md

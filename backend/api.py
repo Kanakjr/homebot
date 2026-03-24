@@ -164,7 +164,7 @@ app.add_middleware(
 )
 
 _API_KEY = os.environ.get("API_KEY", "")
-_AUTH_SKIP_PREFIXES = ("/docs", "/openapi.json", "/api/snapshots/")
+_AUTH_SKIP_PREFIXES = ("/docs", "/openapi.json", "/api/snapshots/", "/api/cameras/")
 
 
 @app.middleware("http")
@@ -452,7 +452,11 @@ async def get_snapshot(filename: str):
     path = SNAPSHOT_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Snapshot not found")
-    return FileResponse(path, media_type="image/jpeg")
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store, must-revalidate", "CDN-Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/entities")
@@ -632,20 +636,58 @@ async def take_camera_snapshot(entity_id: str):
 
     url = f"{config.HA_URL}/api/camera_proxy/{entity_id}"
     headers = {"Authorization": f"Bearer {config.HA_TOKEN}"}
+    timeout = aiohttp.ClientTimeout(total=30)
+    min_image_size = 1000
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                if resp.status != 200:
-                    raise HTTPException(status_code=resp.status, detail="Failed to get snapshot")
-                image_bytes = await resp.read()
-                SNAPSHOT_DIR.mkdir(exist_ok=True)
-                safe_name = entity_id.replace(".", "_")
-                path = SNAPSHOT_DIR / f"{safe_name}.jpg"
-                path.write_bytes(image_bytes)
-                return {"status": "ok", "filename": f"{safe_name}.jpg", "entity_id": entity_id}
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for attempt in range(2):
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status != 200:
+                        if attempt == 0:
+                            await asyncio.sleep(2)
+                            continue
+                        raise HTTPException(status_code=resp.status, detail="Failed to get snapshot")
+                    image_bytes = await resp.read()
+                    if len(image_bytes) < min_image_size and attempt == 0:
+                        await asyncio.sleep(2)
+                        continue
+                    SNAPSHOT_DIR.mkdir(exist_ok=True)
+                    safe_name = entity_id.replace(".", "_")
+                    path = SNAPSHOT_DIR / f"{safe_name}.jpg"
+                    path.write_bytes(image_bytes)
+                    return {"status": "ok", "filename": f"{safe_name}.jpg", "entity_id": entity_id}
+            raise HTTPException(status_code=502, detail="Failed to get valid snapshot after retries")
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/cameras/{entity_id}/stream")
+async def stream_camera(entity_id: str):
+    """Proxy an MJPEG stream from a HA camera entity for live viewing."""
+    if not entity_id.startswith("camera."):
+        raise HTTPException(status_code=400, detail="Not a camera entity")
+
+    url = f"{config.HA_URL}/api/camera_proxy_stream/{entity_id}"
+    ha_headers = {"Authorization": f"Bearer {config.HA_TOKEN}"}
+
+    async def _proxy():
+        timeout = aiohttp.ClientTimeout(total=0, sock_read=300)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, headers=ha_headers) as resp:
+                    if resp.status != 200:
+                        return
+                    async for chunk in resp.content.iter_any():
+                        yield chunk
+        except (aiohttp.ClientError, asyncio.CancelledError):
+            return
+
+    return StreamingResponse(
+        _proxy(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store", "CDN-Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/events")

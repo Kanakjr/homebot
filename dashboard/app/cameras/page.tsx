@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { BlurFade } from "@/components/magicui/blur-fade";
 import { useEntities } from "@/lib/hooks/useEntities";
-import { takeCameraSnapshot, getSnapshotUrl } from "@/lib/api";
+import { takeCameraSnapshot, getSnapshotUrl, getCameraStreamUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface CameraState {
@@ -13,28 +13,48 @@ interface CameraState {
   filename: string | null;
   loading: boolean;
   lastRefresh: number;
+  imgError: boolean;
 }
 
-function CameraCard({ cam, onRefresh }: { cam: CameraState; onRefresh: () => void }) {
-  const imgUrl = cam.filename
+function CameraCard({
+  cam,
+  onRefresh,
+  live,
+  onToggleLive,
+}: {
+  cam: CameraState;
+  onRefresh: () => void;
+  live: boolean;
+  onToggleLive: () => void;
+}) {
+  const snapshotUrl = cam.filename
     ? `${getSnapshotUrl(cam.filename)}?t=${cam.lastRefresh}`
     : null;
+  const streamUrl = getCameraStreamUrl(cam.entityId);
+  const isAvailable = cam.state !== "unavailable";
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
       <div className="relative aspect-video bg-black/50">
-        {imgUrl ? (
+        {live && isAvailable ? (
           <img
-            src={imgUrl}
+            src={streamUrl}
             alt={cam.friendlyName}
             className="h-full w-full object-contain"
+          />
+        ) : snapshotUrl && !cam.imgError ? (
+          <img
+            src={snapshotUrl}
+            alt={cam.friendlyName}
+            className="h-full w-full object-contain"
+            onError={() => onRefresh()}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-neutral-500 text-sm">
             {cam.loading ? "Fetching snapshot..." : "No snapshot available"}
           </div>
         )}
-        {cam.loading && (
+        {cam.loading && !live && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-cyber-yellow border-t-transparent" />
           </div>
@@ -60,6 +80,19 @@ function CameraCard({ cam, onRefresh }: { cam: CameraState; onRefresh: () => voi
           >
             {cam.state}
           </span>
+          {isAvailable && (
+            <button
+              onClick={onToggleLive}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs transition-colors",
+                live
+                  ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
+                  : "bg-white/10 text-neutral-400 hover:bg-white/15",
+              )}
+            >
+              Live
+            </button>
+          )}
           <button
             onClick={onRefresh}
             disabled={cam.loading}
@@ -76,6 +109,7 @@ function CameraCard({ cam, onRefresh }: { cam: CameraState; onRefresh: () => voi
 export default function CamerasPage() {
   const { data, loading: entitiesLoading } = useEntities(60_000);
   const [cameras, setCameras] = useState<CameraState[]>([]);
+  const [liveSet, setLiveSet] = useState<Set<string>>(new Set());
   const [autoRefresh, setAutoRefresh] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -92,6 +126,7 @@ export default function CamerasPage() {
           filename: ex?.filename ?? null,
           loading: ex?.loading ?? false,
           lastRefresh: ex?.lastRefresh ?? 0,
+          imgError: ex?.imgError ?? false,
         };
       });
     });
@@ -99,29 +134,29 @@ export default function CamerasPage() {
 
   const refreshCamera = useCallback(async (entityId: string) => {
     setCameras((prev) =>
-      prev.map((c) => (c.entityId === entityId ? { ...c, loading: true } : c)),
+      prev.map((c) => (c.entityId === entityId ? { ...c, loading: true, imgError: false } : c)),
     );
     try {
       const result = await takeCameraSnapshot(entityId);
       setCameras((prev) =>
         prev.map((c) =>
           c.entityId === entityId
-            ? { ...c, filename: result.filename, loading: false, lastRefresh: Date.now() }
+            ? { ...c, filename: result.filename, loading: false, lastRefresh: Date.now(), imgError: false }
             : c,
         ),
       );
     } catch {
       setCameras((prev) =>
-        prev.map((c) => (c.entityId === entityId ? { ...c, loading: false } : c)),
+        prev.map((c) => (c.entityId === entityId ? { ...c, loading: false, imgError: true } : c)),
       );
     }
   }, []);
 
   const refreshAll = useCallback(() => {
     cameras.forEach((c) => {
-      if (c.state !== "unavailable") refreshCamera(c.entityId);
+      if (c.state !== "unavailable" && !liveSet.has(c.entityId)) refreshCamera(c.entityId);
     });
-  }, [cameras, refreshCamera]);
+  }, [cameras, liveSet, refreshCamera]);
 
   useEffect(() => {
     if (cameras.length > 0 && cameras.every((c) => !c.filename && !c.loading)) {
@@ -142,6 +177,15 @@ export default function CamerasPage() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [autoRefresh, refreshAll]);
+
+  const toggleLive = useCallback((entityId: string) => {
+    setLiveSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(entityId)) next.delete(entityId);
+      else next.add(entityId);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 max-w-5xl">
@@ -185,6 +229,8 @@ export default function CamerasPage() {
             <CameraCard
               cam={cam}
               onRefresh={() => refreshCamera(cam.entityId)}
+              live={liveSet.has(cam.entityId)}
+              onToggleLive={() => toggleLive(cam.entityId)}
             />
           </BlurFade>
         ))}

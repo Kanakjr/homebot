@@ -189,6 +189,10 @@ export function getSnapshotUrl(filename: string): string {
   return `${BASE_URL}/api/snapshots/${encodeURIComponent(filename)}`;
 }
 
+export function getCameraStreamUrl(entityId: string): string {
+  return `${BASE_URL}/api/cameras/${encodeURIComponent(entityId)}/stream`;
+}
+
 export async function getHealth(): Promise<HealthResponse> {
   return fetchJSON<HealthResponse>("/api/health");
 }

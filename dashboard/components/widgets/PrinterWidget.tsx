@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { takeCameraSnapshot, getSnapshotUrl } from "@/lib/api";
+import { takeCameraSnapshot, getSnapshotUrl, getCameraStreamUrl } from "@/lib/api";
 import type { EntityInfo } from "@/lib/types";
 
 interface PrinterWidgetProps {
@@ -74,6 +74,8 @@ function TempBar({
 export default function PrinterWidget({ config, entities }: PrinterWidgetProps) {
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [live, setLive] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   const find = (eid: string) => entities.find((e) => e.entity_id === eid);
   const val = (eid: string) => find(eid)?.state ?? "unknown";
@@ -95,19 +97,22 @@ export default function PrinterWidget({ config, entities }: PrinterWidgetProps) 
   const filament = config.filament_entity ? val(config.filament_entity) : "";
   const isOnline = config.online_entity ? val(config.online_entity) === "on" : true;
   const isPrinting = ["printing", "preparing", "running"].includes(status);
+  const streamUrl = getCameraStreamUrl(config.camera_entity);
 
   const refreshSnapshot = useCallback(async () => {
     setSnapshotLoading(true);
+    setImgError(false);
     try {
       const result = await takeCameraSnapshot(config.camera_entity);
       setSnapshotUrl(getSnapshotUrl(result.filename) + `?t=${Date.now()}`);
-    } catch { /* ignore */ }
-    finally { setSnapshotLoading(false); }
+    } catch {
+      setImgError(true);
+    } finally { setSnapshotLoading(false); }
   }, [config.camera_entity]);
 
   useEffect(() => {
-    refreshSnapshot();
-  }, [refreshSnapshot]);
+    if (!live) refreshSnapshot();
+  }, [refreshSnapshot, live]);
 
   const remainingStr = remaining > 0
     ? remaining >= 60
@@ -133,28 +138,48 @@ export default function PrinterWidget({ config, entities }: PrinterWidgetProps) 
         )}
       </div>
 
-      {/* Camera snapshot */}
+      {/* Camera feed */}
       <div
         className="relative aspect-video rounded-lg overflow-hidden bg-black/50 cursor-pointer group"
-        onClick={refreshSnapshot}
+        onClick={() => { if (!live) refreshSnapshot(); }}
       >
-        {snapshotUrl ? (
+        {live ? (
+          <img
+            src={streamUrl}
+            alt="Printer camera"
+            className="h-full w-full object-cover"
+          />
+        ) : snapshotUrl && !imgError ? (
           <img
             src={snapshotUrl}
             alt="Printer camera"
             className="h-full w-full object-cover"
+            onError={() => setImgError(true)}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-neutral-600">
             {snapshotLoading ? "Loading..." : "No snapshot"}
           </div>
         )}
-        <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
-          <svg viewBox="0 0 24 24" className="h-6 w-6 text-white/70" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            <path d="M16 12l-4-3v6l4-3z" fill="currentColor" />
-          </svg>
-        </div>
+        {!live && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 text-white/70" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path d="M16 12l-4-3v6l4-3z" fill="currentColor" />
+            </svg>
+          </div>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); setLive((v) => !v); }}
+          className={cn(
+            "absolute top-2 right-2 rounded px-2 py-0.5 text-[10px] font-mono transition-colors",
+            live
+              ? "bg-green-500/30 text-green-400"
+              : "bg-white/10 text-neutral-500 opacity-0 group-hover:opacity-100",
+          )}
+        >
+          {live ? "LIVE" : "Live"}
+        </button>
       </div>
 
       {/* Progress bar (only when printing) */}
