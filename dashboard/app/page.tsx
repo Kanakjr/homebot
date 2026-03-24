@@ -11,7 +11,7 @@ import PresenceBar from "@/components/PresenceBar";
 import { AiSummaryBanner } from "@/components/widgets";
 import { getHealth, getDashboardConfig, saveDashboardConfig } from "@/lib/api";
 import { useEntities } from "@/lib/hooks/useEntities";
-import type { HealthResponse, DashboardConfig, DashboardWidget, WidgetSize } from "@/lib/types";
+import type { HealthResponse, DashboardConfig, DashboardWidget, WidgetSize, WidgetLayout } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
@@ -52,14 +52,10 @@ export default function DashboardPage() {
     [],
   );
 
-  const handleReorder = useCallback(
-    (widgetIds: string[]) => {
+  const handleLayoutChange = useCallback(
+    (layouts: Record<string, WidgetLayout[]>) => {
       if (!config) return;
-      const lookup = new Map(config.widgets.map((w) => [w.id, w]));
-      const reordered = widgetIds
-        .map((id) => lookup.get(id))
-        .filter(Boolean) as DashboardWidget[];
-      persistConfig({ ...config, widgets: reordered });
+      persistConfig({ ...config, layouts });
     },
     [config, persistConfig],
   );
@@ -68,7 +64,15 @@ export default function DashboardPage() {
     (widgetId: string) => {
       if (!config) return;
       const filtered = config.widgets.filter((w) => w.id !== widgetId);
-      persistConfig({ ...config, widgets: filtered });
+      const layouts = config.layouts
+        ? Object.fromEntries(
+            Object.entries(config.layouts).map(([bp, items]) => [
+              bp,
+              items.filter((l) => l.i !== widgetId),
+            ]),
+          )
+        : undefined;
+      persistConfig({ ...config, widgets: filtered, layouts });
     },
     [config, persistConfig],
   );
@@ -151,7 +155,7 @@ export default function DashboardPage() {
             entitiesData={entitiesData}
             onRefresh={refreshEntities}
             editMode={editMode}
-            onReorder={handleReorder}
+            onLayoutChange={handleLayoutChange}
             onDelete={handleDelete}
             onEditWidget={handleEditWidget}
           />

@@ -66,21 +66,24 @@ skill when the user's request fits a skill description.
 
 ## Generative UI
 
-Use the render_ui tool when the user's request benefits from interactive \
-controls rather than plain text. This renders real device controls, sensor \
-readings, and action buttons directly in the chat.
+ALWAYS use the render_ui tool alongside device control actions. When you call \
+ha_call_service to toggle, turn on/off, or adjust any device, ALSO call \
+render_ui in the SAME response to show interactive controls for the affected \
+device(s). This lets the user see the current state and make follow-up \
+adjustments without typing another message.
 
-USE render_ui when:
-- User asks to control devices ("show me bedroom controls")
+ALWAYS use render_ui when:
+- You call ha_call_service for ANY device control (lights, switches, fans, climate)
+- User asks to control, toggle, turn on/off, or adjust any device
 - User wants device status with toggle capability
 - User requests a dashboard-like view of sensors/entities
 - User asks for a quick action panel (scene buttons, toggles)
+- User asks about power consumption, sensor data, or energy stats
 
 DO NOT use render_ui when:
-- Simple factual answers ("what is the bedroom temperature?")
+- Simple factual answers with no device involvement
 - Explanations or how-to questions
-- Media management queries
-- Plain text suffices
+- Media management queries (sonarr, radarr, jellyfin, etc.)
 
 Available component types for render_ui:
 Layout: Card, Stack, Grid

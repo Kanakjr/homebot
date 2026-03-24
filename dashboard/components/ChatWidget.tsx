@@ -95,23 +95,38 @@ const Markdown = memo(function Markdown({ content }: { content: string }) {
 });
 
 function ToolCallBubble({ tc }: { tc: ToolCallInfo }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs font-mono">
-      <div className="flex items-center gap-2 text-cyber-yellow">
+    <div
+      className="rounded-lg border border-white/10 bg-white/5 text-xs font-mono cursor-pointer select-none"
+      onClick={() => setExpanded((v) => !v)}
+    >
+      <div className="flex items-center gap-2 px-3 py-2 text-cyber-yellow">
+        <svg
+          className={cn("h-3 w-3 shrink-0 text-neutral-500 transition-transform", expanded && "rotate-90")}
+          viewBox="0 0 16 16"
+          fill="currentColor"
+        >
+          <path d="M6 3l5 5-5 5V3z" />
+        </svg>
         <span>tool</span>
-        <span className="text-white">{tc.name}</span>
+        <span className="text-white truncate">{tc.name}</span>
         {tc.duration_ms != null && (
-          <span className="text-neutral-500 ml-auto">{tc.duration_ms}ms</span>
+          <span className="text-neutral-500 ml-auto shrink-0">{tc.duration_ms}ms</span>
         )}
       </div>
-      {tc.args && Object.keys(tc.args).length > 0 && (
-        <pre className="mt-1 text-neutral-400 overflow-x-auto">
-          {JSON.stringify(tc.args, null, 2)}
-        </pre>
-      )}
-      {tc.result && (
-        <div className="mt-1 text-neutral-500 truncate">
-          {tc.result.slice(0, 200)}
+      {expanded && (
+        <div className="border-t border-white/5 px-3 pb-2 pt-1">
+          {tc.args && Object.keys(tc.args).length > 0 && (
+            <pre className="mt-1 text-neutral-400 overflow-x-auto">
+              {JSON.stringify(tc.args, null, 2)}
+            </pre>
+          )}
+          {tc.result && (
+            <div className="mt-1 text-neutral-500 break-all whitespace-pre-wrap">
+              {tc.result.slice(0, 500)}
+            </div>
+          )}
         </div>
       )}
     </div>

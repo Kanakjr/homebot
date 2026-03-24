@@ -63,6 +63,7 @@ export default function WidgetBuilder({
       setWidgetTitle("");
       setWidgetSize("md");
       setSpec(null);
+      setRefinement("");
       setError(null);
     }
   }, [open]);
@@ -144,16 +145,22 @@ export default function WidgetBuilder({
     }
   }, [selectedEntities, description, widgetSize]);
 
+  const [refinement, setRefinement] = useState("");
+
   const handleTryAnother = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const prompt = refinement.trim()
+      ? `${description}\n\nAdditional instructions: ${refinement.trim()}`
+      : description;
     try {
       const result = await generateWidget(
         Array.from(selectedEntities),
-        description,
+        prompt,
         widgetSize,
       );
       setSpec(result.spec);
+      setRefinement("");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -444,6 +451,37 @@ export default function WidgetBuilder({
                   No preview available.
                 </div>
               )}
+
+              <div>
+                <label className="block text-xs text-neutral-400 mb-1">
+                  Refine (optional)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={refinement}
+                    onChange={(e) => setRefinement(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey && !loading) {
+                        e.preventDefault();
+                        handleTryAnother();
+                      }
+                    }}
+                    placeholder="e.g. Make it more compact, add a brightness slider..."
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:border-cyber-yellow/40 transition-colors"
+                  />
+                  <button
+                    onClick={handleTryAnother}
+                    disabled={loading}
+                    className={cn(
+                      "shrink-0 rounded-lg bg-white/5 px-3 py-2 text-sm text-neutral-300 border border-white/10 hover:bg-white/10 transition-colors",
+                      loading && "opacity-40 cursor-not-allowed",
+                    )}
+                  >
+                    {loading ? "..." : "Regenerate"}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -501,29 +539,17 @@ export default function WidgetBuilder({
               </button>
             )}
             {step === "preview" && (
-              <>
-                <button
-                  onClick={handleTryAnother}
-                  disabled={loading}
-                  className={cn(
-                    "rounded-lg bg-white/5 px-4 py-2 text-sm text-neutral-300 border border-white/10 hover:bg-white/10 transition-colors",
-                    loading && "opacity-40 cursor-not-allowed",
-                  )}
-                >
-                  {loading ? "Generating..." : "Try Another"}
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={loading || !spec}
-                  className={cn(
-                    "rounded-lg bg-cyber-yellow/90 px-4 py-2 text-sm font-medium text-black hover:bg-cyber-yellow transition-colors",
-                    (loading || !spec) &&
-                      "opacity-40 cursor-not-allowed",
-                  )}
-                >
-                  Save to Dashboard
-                </button>
-              </>
+              <button
+                onClick={handleSave}
+                disabled={loading || !spec}
+                className={cn(
+                  "rounded-lg bg-cyber-yellow/90 px-4 py-2 text-sm font-medium text-black hover:bg-cyber-yellow transition-colors",
+                  (loading || !spec) &&
+                    "opacity-40 cursor-not-allowed",
+                )}
+              >
+                Save to Dashboard
+              </button>
             )}
           </div>
         </div>
