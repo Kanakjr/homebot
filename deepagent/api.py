@@ -94,6 +94,15 @@ async def list_models():
     provider = config.MODEL.split(":", 1)[0] if ":" in config.MODEL else "google_genai"
     models = [{"id": config.MODEL, "provider": provider, "name": model_name}]
 
+    seen = {config.MODEL}
+    for extra in config.EXTRA_MODELS:
+        if extra in seen:
+            continue
+        seen.add(extra)
+        ep = extra.split(":", 1)[0] if ":" in extra else "google_genai"
+        en = extra.split(":", 1)[-1] if ":" in extra else extra
+        models.append({"id": extra, "provider": ep, "name": en})
+
     try:
         async with aiohttp.ClientSession() as session:
             ollama_url = config.OLLAMA_URL.rstrip("/")

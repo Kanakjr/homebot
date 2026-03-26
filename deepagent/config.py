@@ -9,7 +9,12 @@ load_dotenv()
 
 # --- LLM ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-MODEL = os.getenv("MODEL", "google_genai:gemini-3-flash-preview")
+MODEL = os.getenv("MODEL", "google_genai:gemini-2.5-flash")
+EXTRA_MODELS = [
+    m.strip() for m in
+    os.getenv("EXTRA_MODELS", "google_genai:gemini-2.5-flash-lite,google_genai:gemini-3-flash-preview,google_genai:gemini-3.1-flash-lite-preview").split(",")
+    if m.strip()
+]
 # Ollama HTTP API base (used by ChatOllama and /api/models). In Docker use host.docker.internal; on host use 127.0.0.1.
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 

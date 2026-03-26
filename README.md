@@ -2,6 +2,10 @@
 
 Intelligent smart-home assistant powered by LangChain + Gemini, with live Home Assistant awareness, learnable skills, proactive automations, and a modern dashboard UI.
 
+## Demo video
+
+- [Watch the demo on YouTube](https://youtu.be/og9YRxQFgDE?si=cjp23OfxW1IjFVin)
+
 ![Dashboard](docs/assets/screenshots/dashboard.png)
 
 ## Features
