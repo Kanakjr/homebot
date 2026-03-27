@@ -30,6 +30,14 @@ def _clean_filename(text: str, max_len: int = 50) -> str:
     return re.sub(r"[^\w\s-]", "", text).strip()[:max_len]
 
 
+def _normalize_tag(tag: str) -> str:
+    """Normalize tags for Obsidian: no spaces, use hyphens."""
+    cleaned = tag.strip().lstrip("#")
+    cleaned = re.sub(r"\s+", "-", cleaned)
+    cleaned = re.sub(r"-{2,}", "-", cleaned)
+    return cleaned.strip("-")
+
+
 def _is_media_url(url: str) -> bool:
     domain = urlparse(url).netloc.lower().lstrip("www.")
     return any(d in domain for d in MEDIA_DOMAINS)
@@ -257,8 +265,9 @@ async def process_and_save_link(url: str, category: str = "", tags: str = "") ->
             metadata_section = f"Failed to fetch webpage: {e}"
 
     # Merge user tags + AI tags
-    all_tags = list(dict.fromkeys(user_tags + ai_tags))  # dedup, preserve order
-    tags_str = " ".join([f"#{t.strip('#')}" for t in all_tags if t])
+    normalized_tags = [_normalize_tag(t) for t in (user_tags + ai_tags) if t]
+    all_tags = list(dict.fromkeys([t for t in normalized_tags if t]))  # dedup, preserve order
+    tags_str = " ".join([f"#{t}" for t in all_tags])
 
     # Build note file path — always inside Bookmarks/{category}/
     category_path = vault / "Bookmarks" / detected_category
