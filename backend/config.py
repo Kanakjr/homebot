@@ -83,3 +83,10 @@ ENERGY_RATE = float(os.environ.get("ENERGY_RATE", "8"))
 ENERGY_CURRENCY = os.environ.get("ENERGY_CURRENCY", "INR")
 
 MEDIA_DISCOVER_MODEL = os.environ.get("MEDIA_DISCOVER_MODEL", "gemini-3-flash-preview")
+
+# Deep Agent integration
+DEEP_AGENT_URL = os.environ.get("DEEP_AGENT_URL", "http://homebot-deepagent:8322")
+DEEP_AGENT_API_KEY = os.environ.get("DEEP_AGENT_API_KEY", "")
+
+# Obsidian vault (used by obsidian + link_processor tools)
+OBSIDIAN_VAULT_PATH = os.environ.get("OBSIDIAN_VAULT_PATH", "/app/obsidian")

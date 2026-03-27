@@ -45,6 +45,7 @@ BASE_DIR = Path(__file__).resolve().parent
 SKILLS_DIR = str(BASE_DIR / "skills")
 DATA_DIR = Path(os.getenv("DATA_DIR", "/tmp/deepagent_data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+OBSIDIAN_VAULT_PATH = os.getenv("OBSIDIAN_VAULT_PATH", "/Users/kanakjr/Documents/Obsidian/Obsidian")
 
 # --- LangSmith ---
 DEEPAGENT_MAX_QWEN_B = int(os.getenv("DEEPAGENT_MAX_QWEN_B", "4"))

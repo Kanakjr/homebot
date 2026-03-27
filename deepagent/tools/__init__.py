@@ -11,6 +11,8 @@ def get_all_tools() -> list:
     from .jellyseerr import get_jellyseerr_tools
     from .prowlarr import get_prowlarr_tools
     from .render_ui import get_render_ui_tools
+    from .obsidian import get_obsidian_tools
+    from .link_processor import get_link_processor_tools
 
     return (
         get_ha_tools()
@@ -21,4 +23,6 @@ def get_all_tools() -> list:
         + get_jellyseerr_tools()
         + get_prowlarr_tools()
         + get_render_ui_tools()
+        + get_obsidian_tools()
+        + get_link_processor_tools()
     )
