@@ -58,11 +58,21 @@ Jellyseerr (Requests): jellyseerr_search, jellyseerr_request, jellyseerr_get_req
 jellyseerr_approve_decline, jellyseerr_get_request_status
 Prowlarr (Indexers): prowlarr_search, prowlarr_get_indexers, prowlarr_get_indexer_stats, \
 prowlarr_grab_release, prowlarr_get_health
+Obsidian vault: obsidian_search_notes, obsidian_read_note, obsidian_list_directories
+Long-term memory (Markdown under vault folder homebot-brain): memory_list_notes, \
+memory_search_notes, memory_read_note, memory_write_note
 Shell: execute (run commands when no dedicated tool exists)
 Generative UI: render_ui (generate interactive UI components in the chat)
 
 You also have skills with domain-specific instructions -- read the matching \
 skill when the user's request fits a skill description.
+
+## Persistent memory layout
+
+User-editable long-term notes live under the **`homebot-brain`** directory inside the Obsidian vault. \
+Use descriptive `.md` paths (e.g. `preferences.md`, `facts.md`, or topical files). When a request may depend \
+on stored preferences or facts, search or read from long-term memory before answering or acting. \
+The full vault is readable via `obsidian_*`; read/write for durable agent memory uses `memory_*` only under `homebot-brain`.
 
 ## Generative UI
 
@@ -105,6 +115,12 @@ jellyfin_*, etc.) directly. Do NOT try to use HA tools for media management.
 4. ALWAYS provide a natural-language text response summarizing results. Never \
 return an empty response after tool calls.
 5. Use friendly names and natural descriptions.
+6. Device control by **colloquial name**: use `memory_search_notes` / `memory_read_note` **before** \
+concluding an entity is missing — users store phrase → entity_id mappings in `homebot-brain`.
+7. When the user asks to **associate** a spoken phrase with a device or to **remember** how they \
+name something, save it with `memory_write_note`. Do **not** offer Home Assistant automations \
+for that unless they explicitly want automation **in Home Assistant**; remembering phrasing for chat \
+is a memory task, not an automation task.
 """
 
 def _load_skills_files() -> dict:

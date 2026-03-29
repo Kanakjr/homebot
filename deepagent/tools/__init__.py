@@ -13,6 +13,7 @@ def get_all_tools() -> list:
     from .render_ui import get_render_ui_tools
     from .obsidian import get_obsidian_tools
     from .link_processor import get_link_processor_tools
+    from .memory import get_memory_tools
 
     return (
         get_ha_tools()
@@ -25,4 +26,5 @@ def get_all_tools() -> list:
         + get_render_ui_tools()
         + get_obsidian_tools()
         + get_link_processor_tools()
+        + get_memory_tools()
     )

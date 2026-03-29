@@ -48,11 +48,19 @@ Use `ha_call_service(domain, service, entity_id, data)`:
 - **Fans**: `turn_on` / `turn_off`. Optional: `{"preset_mode": "auto"}`
 - **Scenes**: `scene.turn_on` to activate
 
+## Colloquial names and long-term memory
+
+Friendly names in HA may not match how the user speaks (e.g. they say “bedroom light” but the entity is `light.bedside`).
+
+1. **Before** you say you could not find a device for a natural-language name, use **`memory_search_notes`** (and `memory_read_note` if needed) on keywords from their phrase — the user may have stored a phrase → `entity_id` mapping under `homebot-brain`.
+2. If memory lists a mapping, use that **`entity_id`** with `ha_call_service` (and `render_ui` as usual).
+3. If the user **teaches** a mapping in chat, persist it with **`memory_write_note`** (see long-term-memory skill); do **not** default to Home Assistant automations unless they ask for automation inside HA.
+
 ## Efficiency
 
 - Since there are only 2 lights, `ha_get_states(domain="light")` gives you everything in one call. No need to search by room.
 - For "what's on?" queries, check `ha_get_states` for the relevant domain -- do NOT search room-by-room.
-- Use `ha_search_entities(query="...")` only when looking for something by keyword that isn't listed above.
+- Use `ha_search_entities(query="...")` only when looking for something by keyword that isn't listed above and memory did not already resolve the name.
 
 ## Tips
 
