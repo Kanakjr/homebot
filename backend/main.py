@@ -179,12 +179,13 @@ async def handle_message(update: Update, context):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     # Prepend a context hint so the deepagent knows this is Telegram
-    # and should NOT use render_ui or generative UI components
+    # and should NOT use render_ui (which is only for the web dashboard)
     full_msg = (
         "[Context: This message is from the Telegram bot. "
-        "Do NOT call render_ui or generate any UI components. "
-        "Reply with plain text only, suitable for Telegram. "
-        "Be concise and direct.]\n\n"
+        "Do NOT call render_ui — that tool is only for the web dashboard UI. "
+        "Format your response with emojis, clear sections, and a warm engaging tone. "
+        "Avoid raw markdown syntax like ** or ##; use emojis and newlines instead. "
+        "Be concise and friendly, like texting with a smart home assistant.]\n\n"
         + user_msg
     )
 
@@ -202,7 +203,8 @@ async def handle_photo(update: Update, context):
 
     message = (
         "[Context: This message is from the Telegram bot. Do NOT call render_ui. "
-        "Reply with plain text only.]\n\n"
+        "Format your response with emojis and a warm, conversational tone. "
+        "Be concise and direct.]\n\n"
         f"[User sent a photo with caption: {caption}]"
     )
     response_text = await _call_deepagent(thread_id=thread_id, message=message)
@@ -218,12 +220,11 @@ async def post_init(application: Application):
 
     app_ctx.notifier.bot = application.bot
 
-    # Reactor still uses the internal agent for scheduled skills/notifications
-    await app_ctx.ensure_agent()
+    # Build the ToolMap for static skill dispatch (ha_call_service etc.)
+    await app_ctx.ensure_static_tools()
     reactor = Reactor(
         state_cache=app_ctx.state_cache,
         procedural=app_ctx.procedural,
-        agent=app_ctx.agent,
         notifier=app_ctx.notifier,
     )
     reactor.set_tool_map(app_ctx.tool_map)

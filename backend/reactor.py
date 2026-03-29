@@ -14,6 +14,7 @@ import json
 import logging
 import time
 
+import aiohttp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -38,12 +39,10 @@ class Reactor:
         self,
         state_cache: StateCache,
         procedural: ProceduralMemory,
-        agent,
         notifier: TelegramNotifier,
     ):
         self.state = state_cache
         self.procedural = procedural
-        self.agent = agent
         self.notifier = notifier
         self.scheduler = AsyncIOScheduler(timezone=config.TZ)
         self._tool_map: ToolMap | None = None
@@ -225,6 +224,7 @@ class Reactor:
         return f"Skill '{skill['name']}' executed:\n" + "\n".join(results)
 
     async def _execute_ai(self, skill: dict, context: dict | None = None, *, scheduled: bool = False) -> str:
+        """Execute an AI skill by sending a prompt to the deepagent."""
         ai_prompt = skill.get("ai_prompt", "")
 
         event_log = await self.procedural.get_event_log(hours=24)
@@ -235,62 +235,62 @@ class Reactor:
                 for e in event_log[-50:]
             )
 
-        if scheduled and config.OLLAMA_ENABLED:
-            result = await self._try_local_ai(skill, ai_prompt, log_text, context)
-            if result is not None:
-                return result
-            log.info("Local LLM failed for skill '%s', falling back to Gemini agent", skill["name"])
-
         prompt = (
             f"[SKILL EXECUTION: {skill['name']}]\n"
-            "You are executing a skill RIGHT NOW. Do NOT mention that the skill "
-            "already exists or suggest waiting for it. Perform the task below "
-            "immediately using your tools and live state data. Produce the "
-            "requested output directly.\n\n"
+            "[Context: You are executing an automated skill. The result will be sent as a Telegram notification. "
+            "Do NOT call render_ui — that tool is only for the web dashboard UI. "
+            "Format your response with emojis, clear section headers, and a warm engaging tone. "
+            "Avoid raw markdown syntax like ** or ##; use emojis and newlines instead. "
+            "Be concise and easy to scan at a glance.]\n\n"
         )
         prompt += ai_prompt
         if context:
             prompt += f"\n\nTrigger context: {json.dumps(context, default=str)}"
         if log_text:
-            prompt += f"\n\nRecent event log:\n{log_text}"
+            prompt += f"\n\nRecent event log (last 24h):\n{log_text}"
 
-        import random
-        ephemeral_chat_id = -random.randint(1_000_000, 9_999_999)
-        result = await self.agent.run(
-            chat_id=ephemeral_chat_id,
-            user_message=prompt,
-            system_prompt_override=await self.agent._build_system_prompt(),
-        )
-        return result.text
-
-    async def _try_local_ai(self, skill: dict, ai_prompt: str, log_text: str, context: dict | None) -> str | None:
-        """Try generating skill output with the local LLM (no tool calling)."""
-        from langchain_core.messages import SystemMessage, HumanMessage
-        from llm import invoke_with_fallback
-
-        state_text = self.state.summarize()
-
-        system = (
-            f"You are a smart home assistant executing the '{skill['name']}' task. "
-            f"{skill.get('description', '')} "
-            "Produce a clear, natural-language report based on the provided state data and event log. "
-            "Do not use markdown, bullet points, or emojis. Keep it concise and conversational."
-        )
-        user_parts = [ai_prompt, f"\nCurrent home state:\n{state_text}"]
-        if context:
-            user_parts.append(f"\nTrigger context: {json.dumps(context, default=str)}")
-        if log_text:
-            user_parts.append(f"\nRecent event log (last 24h):\n{log_text}")
-
-        messages = [SystemMessage(content=system), HumanMessage(content="\n".join(user_parts))]
+        # Use an isolated thread per skill so it has its own conversation context
+        thread_id = f"reactor-skill-{skill['id']}"
 
         try:
-            text, provider = await invoke_with_fallback(messages, prefer_local=True)
-            log.info("Skill '%s' generated via %s (%d chars)", skill["name"], provider, len(text))
-            return text
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{config.DEEP_AGENT_URL}/api/chat/stream",
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-API-Key": config.DEEP_AGENT_API_KEY,
+                    },
+                    json={"message": prompt, "thread_id": thread_id},
+                    timeout=aiohttp.ClientTimeout(total=120),
+                ) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        log.error("DeepAgent returned %s for skill '%s': %s", resp.status, skill['name'], body[:300])
+                        return f"Skill '{skill['name']}' failed: deep agent unavailable."
+
+                    raw = await resp.read()
+                    body = raw.decode("utf-8", errors="ignore")
+                    result_text = f"Skill '{skill['name']}' completed."
+                    for line in body.splitlines():
+                        line = line.strip()
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            data = json.loads(line[5:].strip())
+                        except json.JSONDecodeError:
+                            continue
+                        if data.get("type") == "response":
+                            result_text = data.get("content", result_text)
+                        elif data.get("type") == "error":
+                            result_text = data.get("content", result_text)
+                    return result_text
+
+        except aiohttp.ClientConnectionError:
+            log.error("Could not connect to Deep Agent for skill '%s'", skill['name'])
+            return f"Skill '{skill['name']}' failed: deep agent is offline."
         except Exception as e:
-            log.warning("Local AI for skill '%s' failed entirely: %s", skill["name"], e)
-            return None
+            log.exception("Unexpected error executing AI skill '%s' via deepagent", skill['name'])
+            return f"Skill '{skill['name']}' failed: {e}"
 
     def _can_notify(self, key: str) -> bool:
         """Cooldown check to avoid notification spam."""

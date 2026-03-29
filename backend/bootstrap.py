@@ -25,10 +25,10 @@ class App:
     """Container for all initialized homebot components."""
 
     __slots__ = (
-        "agent", "state_cache", "tool_map",
+        "state_cache", "tool_map",
         "episodic", "semantic", "procedural",
         "dashboard_config", "notifier",
-        "_agent_lock",
+        "_tools_lock",
     )
 
     def __init__(self):
@@ -39,36 +39,31 @@ class App:
         self.dashboard_config = DashboardConfig(config.DB_PATH)
         self.notifier = TelegramNotifier()
         self.tool_map = None
-        self.agent = None
-        self._agent_lock = asyncio.Lock()
+        self._tools_lock = asyncio.Lock()
 
-    async def ensure_agent(self):
-        """Lazily import LangChain and build the agent + tools on first use.
+    async def ensure_static_tools(self):
+        """Build the ToolMap with only the tools needed for static skill dispatch.
 
-        Thread-safe: concurrent callers block until the first build completes.
-        Fast no-op after the first call.
+        AI skills now go through deepagent, so we only need:
+          - HA tools (ha_call_service, ha_find_entities) for static skill actions
+          - Skill management tools (create/list/update/delete)
+          - Scene tools (snapshot/restore device states)
+          - Memory tools (semantic remember/recall)
         """
-        if self.agent is not None:
+        if self.tool_map is not None:
             return
 
-        async with self._agent_lock:
-            if self.agent is not None:
+        async with self._tools_lock:
+            if self.tool_map is not None:
                 return
 
             t0 = time.monotonic()
-            log.info("Building agent (importing LangChain)...")
+            log.info("Building static tool map for Reactor...")
 
-            from agent import Agent
             from tools.registry import ToolMap
             from tools.homeassistant import create_ha_tools, create_ha_state_tools
             from tools.skills import create_skill_tools
             from tools.memory_tools import create_memory_tools
-            from tools.sonarr import create_sonarr_tools
-            from tools.radarr import create_radarr_tools
-            from tools.transmission import create_transmission_tools
-            from tools.jellyseerr import create_jellyseerr_tools
-            from tools.prowlarr import create_prowlarr_tools
-            from tools.jellyfin import create_jellyfin_tools
             from tools.scenes import create_scene_tools
 
             self.tool_map = ToolMap()
@@ -76,25 +71,11 @@ class App:
             self.tool_map.register_many(create_ha_state_tools(self.state_cache))
             self.tool_map.register_many(create_skill_tools(self.procedural, self.tool_map))
             self.tool_map.register_many(create_memory_tools(self.semantic))
-            self.tool_map.register_many(create_sonarr_tools())
-            self.tool_map.register_many(create_radarr_tools())
-            self.tool_map.register_many(create_transmission_tools())
-            self.tool_map.register_many(create_jellyseerr_tools())
-            self.tool_map.register_many(create_prowlarr_tools())
-            self.tool_map.register_many(create_jellyfin_tools())
             self.tool_map.register_many(create_scene_tools(self.procedural, self.state_cache))
-            log.info("Registered %d LangChain tools", len(self.tool_map))
+            log.info("Static tool map ready with %d tools in %.1fs", len(self.tool_map), time.monotonic() - t0)
 
-            self.agent = Agent(
-                state_cache=self.state_cache,
-                episodic=self.episodic,
-                semantic=self.semantic,
-                procedural=self.procedural,
-                tool_map=self.tool_map,
-            )
-            self.agent.build_agent()
-
-            log.info("Agent ready in %.1fs", time.monotonic() - t0)
+    # Keep for backward compat with any code still calling ensure_agent()
+    ensure_agent = ensure_static_tools
 
 
 async def create_app(connect_ha: bool = True, build_agent: bool = True) -> App:

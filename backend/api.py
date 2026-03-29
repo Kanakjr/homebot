@@ -367,7 +367,7 @@ async def toggle_skill(skill_id: str, active: bool = True):
 @app.post("/api/skills/{skill_id}/execute")
 async def execute_skill(skill_id: str):
     """Execute a skill on demand and return the result."""
-    await _app_ctx.ensure_agent()
+    await _app_ctx.ensure_static_tools()
     skill = await _app_ctx.procedural.get_skill(skill_id)
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
@@ -389,13 +389,13 @@ async def execute_skill(skill_id: str):
                     results.append(f"{tool_name}: unknown tool")
             result_text = f"Skill '{skill['name']}' executed:\n" + "\n".join(results)
         elif skill["mode"] == "ai":
-            import random
             prompt = (
                 f"[SKILL EXECUTION: {skill['name']}]\n"
-                "You are executing a skill RIGHT NOW. Do NOT mention that the skill "
-                "already exists or suggest waiting for it. Perform the task below "
-                "immediately using your tools and live state data. Produce the "
-                "requested output directly.\n\n"
+                "[Context: You are executing a skill on demand. "
+                "Do NOT call render_ui (that is only for the web dashboard). "
+                "Use rich text formatting with emojis 🏠, clear section headers, "
+                "a warm and engaging tone. Make it easy to scan at a glance. "
+                "Avoid raw markdown like ** or ##, use emojis and line breaks instead.]\n\n"
             )
             prompt += skill.get("ai_prompt", "")
             event_log = await _app_ctx.procedural.get_event_log(hours=24)
@@ -406,23 +406,29 @@ async def execute_skill(skill_id: str):
                 )
                 prompt += f"\n\nRecent event log:\n{log_text}"
 
-            skill_model = skill.get("model")
-            if skill_model:
-                from langchain_core.messages import SystemMessage as _Sys, HumanMessage as _Hum
-                import llm as _llm
-                sys_prompt = await _app_ctx.agent._build_system_prompt()
-                result_text, _ = await _llm.invoke_with_fallback(
-                    [_Sys(content=sys_prompt), _Hum(content=prompt)],
-                    model=skill_model,
-                )
-            else:
-                ephemeral_chat_id = -random.randint(1_000_000, 9_999_999)
-                agent_result = await _app_ctx.agent.run(
-                    chat_id=ephemeral_chat_id,
-                    user_message=prompt,
-                    system_prompt_override=await _app_ctx.agent._build_system_prompt(),
-                )
-                result_text = agent_result.text
+            thread_id = f"api-skill-{skill_id}"
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{config.DEEP_AGENT_URL}/api/chat/stream",
+                    headers={"Content-Type": "application/json", "X-API-Key": config.DEEP_AGENT_API_KEY},
+                    json={"message": prompt, "thread_id": thread_id},
+                    timeout=aiohttp.ClientTimeout(total=120),
+                ) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        raise HTTPException(status_code=502, detail=f"Deep agent error: {body[:200]}")
+                    raw = await resp.read()
+                    result_text = f"Skill '{skill['name']}' completed."
+                    for line in raw.decode("utf-8", errors="ignore").splitlines():
+                        line = line.strip()
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            data = json.loads(line[5:].strip())
+                        except json.JSONDecodeError:
+                            continue
+                        if data.get("type") == "response":
+                            result_text = data.get("content", result_text)
         else:
             result_text = f"Unknown mode for skill '{skill['name']}'"
 

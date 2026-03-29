@@ -2,6 +2,7 @@
 
 import json
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -11,6 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
+import urllib.request
 
 import config
 
@@ -43,11 +45,25 @@ def _is_media_url(url: str) -> bool:
     return any(d in domain for d in MEDIA_DOMAINS)
 
 
+def _is_instagram_post_url(url: str) -> bool:
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower().lstrip("www.")
+    return domain == "instagram.com" and "/p/" in parsed.path.lower()
+
+
+def _yt_dlp_base_args() -> list[str]:
+    args = ["yt-dlp", "--no-warnings"]
+    cookies_path = getattr(config, "YTDLP_COOKIES_PATH", "") or os.environ.get("YTDLP_COOKIES_PATH", "")
+    if cookies_path and Path(cookies_path).exists():
+        args.extend(["--cookies", str(cookies_path)])
+    return args
+
+
 def _fetch_metadata(url: str) -> dict:
     """Use yt-dlp --dump-json to fetch video metadata without downloading."""
     try:
         result = subprocess.run(
-            ["yt-dlp", "--dump-json", "--no-warnings", url],
+            _yt_dlp_base_args() + ["--dump-json", url],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode == 0:
@@ -59,20 +75,29 @@ def _fetch_metadata(url: str) -> dict:
                 "duration": data.get("duration", 0),
                 "view_count": data.get("view_count"),
                 "like_count": data.get("like_count"),
+                "thumbnail": data.get("thumbnail", ""),
+                "ext": data.get("ext", ""),
+                "entries": data.get("entries", []),
             }
         log.warning("yt-dlp metadata error: %s", result.stderr[:300])
     except Exception as e:
         log.warning("yt-dlp metadata failed: %s", e)
-    return {"title": "Untitled", "uploader": "", "description": "", "duration": 0}
+    return {
+        "title": "Untitled",
+        "uploader": "",
+        "description": "",
+        "duration": 0,
+        "thumbnail": "",
+        "ext": "",
+        "entries": [],
+    }
 
 
 def _download_video(url: str, out_dir: str) -> str | None:
     """Download the video to a temp file, return the file path or None on failure."""
     try:
         result = subprocess.run(
-            [
-                "yt-dlp",
-                "--no-warnings",
+            _yt_dlp_base_args() + [
                 "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
                 "--merge-output-format", "mp4",
                 "-o", os.path.join(out_dir, "video.%(ext)s"),
@@ -88,6 +113,66 @@ def _download_video(url: str, out_dir: str) -> str | None:
     except Exception as e:
         log.warning("yt-dlp download failed: %s", e)
     return None
+
+
+def _extract_instagram_image_urls(url: str, fallback_thumbnail: str = "") -> list[str]:
+    """Extract image URLs from Instagram post HTML (single and carousel posts)."""
+    candidates: list[str] = []
+    urls_to_try = [url]
+    if not url.rstrip("/").endswith("/embed"):
+        urls_to_try.append(url.rstrip("/") + "/embed/")
+
+    patterns = [
+        r'<meta\s+property="og:image"\s+content="([^"]+)"',
+        r'"display_url":"(https:\\/\\/[^"]+)"',
+        r'"display_src":"(https:\\/\\/[^"]+)"',
+        r'"thumbnail_src":"(https:\\/\\/[^"]+)"',
+    ]
+
+    for target in urls_to_try:
+        try:
+            req = urllib.request.Request(target, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            for pattern in patterns:
+                for m in re.findall(pattern, html):
+                    candidates.append(m.replace("\\/", "/"))
+        except Exception as e:
+            log.warning("Failed to extract Instagram image URLs from %s: %s", target, e)
+
+    if fallback_thumbnail:
+        candidates.append(fallback_thumbnail)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for media_url in candidates:
+        cleaned = media_url.strip()
+        if not cleaned:
+            continue
+        if cleaned not in seen:
+            seen.add(cleaned)
+            deduped.append(cleaned)
+    return deduped
+
+
+def _download_image_urls(image_urls: list[str], out_dir: str, max_images: int = 10) -> list[str]:
+    """Download images from direct URLs to temp files."""
+    downloaded: list[str] = []
+    for idx, media_url in enumerate(image_urls[:max_images], start=1):
+        try:
+            req = urllib.request.Request(media_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                content_type = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                ext = mimetypes.guess_extension(content_type) or Path(urlparse(media_url).path).suffix or ".jpg"
+                if ext.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+                    ext = ".jpg"
+                file_path = os.path.join(out_dir, f"image_{idx}{ext}")
+                with open(file_path, "wb") as f:
+                    f.write(resp.read())
+                downloaded.append(file_path)
+        except Exception as e:
+            log.warning("Failed to download Instagram image %s: %s", media_url, e)
+    return downloaded
 def _analyze_and_categorize_video(video_path: str) -> dict:
     """
     Upload video ONCE to Gemini Files API, then run two lightweight inference calls
@@ -177,6 +262,78 @@ def _analyze_and_categorize_video(video_path: str) -> dict:
         return {"analysis": "", "category": "Other", "tags": [], "title": ""}
 
 
+def _analyze_and_categorize_images(image_paths: list[str]) -> dict:
+    """Analyze one or more images with Gemini and return title/category/tags/analysis."""
+    if not image_paths:
+        return {"analysis": "", "category": "Other", "tags": [], "title": ""}
+
+    try:
+        import google.genai as genai
+
+        api_key = getattr(config, "GOOGLE_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
+        if not api_key:
+            return {"analysis": "", "category": "Other", "tags": [], "title": ""}
+
+        client = genai.Client(api_key=api_key)
+        uploaded_names: list[str] = []
+        uploaded_files = []
+        for image_path in image_paths[:4]:
+            mime_type = mimetypes.guess_type(image_path)[0] or "image/jpeg"
+            with open(image_path, "rb") as f:
+                uploaded = client.files.upload(
+                    file=f,
+                    config={"mime_type": mime_type, "display_name": "link_analysis_image"},
+                )
+                uploaded_files.append(uploaded)
+                uploaded_names.append(uploaded.name)
+
+        meta_prompt = (
+            'Analyze these Instagram post images. Reply with ONLY this JSON object, no markdown fences, '
+            'no extra text:\n'
+            '{"title":"<8 words max describing what this post is about, no hashtags>",'
+            '"category":"<one of: Culinary, Tech, Coffee, Fitness, Travel, Music, Comedy, '
+            'Education, Finance, Science, Gaming, Fashion, Lifestyle, News, DIY, Art, Other>",'
+            '"tags":["<tag1>","<tag2>","<tag3>"]}'
+        )
+        meta_resp = client.models.generate_content(
+            model="models/gemini-2.5-flash",
+            contents=[*uploaded_files, meta_prompt],
+        )
+        raw = re.sub(r"^```json\s*|\s*```$", "", meta_resp.text.strip())
+        meta = json.loads(raw)
+
+        analysis_prompt = (
+            "Analyze these Instagram post images and provide a detailed markdown report with sections:\n\n"
+            "## Visual Description\n"
+            "## Key Topics / Products\n"
+            "## Useful Information / Tips\n\n"
+            "Be specific, detailed and actionable."
+        )
+        analysis_resp = client.models.generate_content(
+            model="models/gemini-2.5-flash",
+            contents=[*uploaded_files, analysis_prompt],
+        )
+
+        for file_name in uploaded_names:
+            try:
+                client.files.delete(name=file_name)
+            except Exception:
+                pass
+
+        return {
+            "title": meta.get("title", "").strip(),
+            "category": meta.get("category", "Other"),
+            "tags": meta.get("tags", []),
+            "analysis": analysis_resp.text.strip(),
+        }
+    except json.JSONDecodeError as e:
+        log.error("Gemini returned invalid JSON for image metadata: %s", e)
+        return {"analysis": "", "category": "Other", "tags": [], "title": ""}
+    except Exception as e:
+        log.error("Gemini image analysis failed: %s", e)
+        return {"analysis": "", "category": "Other", "tags": [], "title": ""}
+
+
 
 async def process_and_save_link(url: str, category: str = "", tags: str = "") -> str:
     """Fetch a URL, download and AI-analyze any video, auto-categorize, then save note + video to Obsidian vault.
@@ -201,6 +358,7 @@ async def process_and_save_link(url: str, category: str = "", tags: str = "") ->
     ai_tags: list[str] = []
     detected_category = category or "Bookmarks"
     saved_video_rel: str | None = None
+    saved_media_rel: list[str] = []
 
     if _is_media_url(url):
         # Step 1: get metadata (fast, no download)
@@ -215,9 +373,14 @@ async def process_and_save_link(url: str, category: str = "", tags: str = "") ->
             + f"\n**Description**:\n{meta['description'][:1000]}\n"
         )
 
-        # Step 2: download video, analyze + categorize, then save video permanently
+        # Step 2: download media and analyze with Gemini
         with tempfile.TemporaryDirectory() as tmp_dir:
+            image_paths: list[str] = []
             video_path = _download_video(url, tmp_dir)
+            if not video_path and _is_instagram_post_url(url):
+                image_urls = _extract_instagram_image_urls(url, fallback_thumbnail=meta.get("thumbnail", ""))
+                image_paths = _download_image_urls(image_urls, tmp_dir)
+
             if video_path:
                 log.info("Analyzing video with Gemini: %s", video_path)
                 result = _analyze_and_categorize_video(video_path)
@@ -247,9 +410,37 @@ async def process_and_save_link(url: str, category: str = "", tags: str = "") ->
                     video_dest = media_dir / f"{safe_title}_{int(time.time())}{ext}"
                 shutil.copy2(video_path, video_dest)
                 saved_video_rel = str(video_dest.relative_to(vault))
+                saved_media_rel.append(saved_video_rel)
                 log.info("Saved video to vault: %s", saved_video_rel)
+            elif image_paths:
+                log.info("Analyzing Instagram images with Gemini: %s files", len(image_paths))
+                result = _analyze_and_categorize_images(image_paths)
+                ai_analysis = result["analysis"]
+                ai_tags = result["tags"]
+
+                if not category:
+                    detected_category = result["category"]
+
+                ai_title = result.get("title", "").strip()
+                uploader = meta.get("uploader", "").strip()
+                if ai_title and uploader:
+                    title = f"{ai_title} - {uploader}"
+                elif ai_title:
+                    title = ai_title
+
+                media_dir = vault / "Bookmarks" / "Media" / detected_category
+                media_dir.mkdir(parents=True, exist_ok=True)
+
+                for image_path in image_paths:
+                    ext = Path(image_path).suffix or ".jpg"
+                    safe_title = _clean_filename(title, max_len=45) or "image"
+                    image_dest = media_dir / f"{safe_title}{ext}"
+                    if image_dest.exists():
+                        image_dest = media_dir / f"{safe_title}_{int(time.time() * 1000)}{ext}"
+                    shutil.copy2(image_path, image_dest)
+                    saved_media_rel.append(str(image_dest.relative_to(vault)))
             else:
-                log.warning("Video download failed, saving note with metadata only")
+                log.warning("Media download failed, saving note with metadata only")
     else:
         # Web article fallback
         try:
@@ -281,10 +472,8 @@ async def process_and_save_link(url: str, category: str = "", tags: str = "") ->
 
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     ai_section = f"\n## 🤖 AI Analysis\n\n{ai_analysis}\n" if ai_analysis else ""
-    video_section = (
-        f"\n## 📹 Saved Video\n\n![[{saved_video_rel}]]\n"
-        if saved_video_rel else ""
-    )
+    media_embeds = "\n".join([f"![[{media_path}]]" for media_path in saved_media_rel])
+    media_section = f"\n## Saved Media\n\n{media_embeds}\n" if media_embeds else ""
 
     md_content = f"""---
 url: {url}
@@ -299,7 +488,7 @@ tags: [{", ".join(all_tags)}]
 
 ## Content / Metadata
 
-{metadata_section}{video_section}{ai_section}"""
+{metadata_section}{media_section}{ai_section}"""
 
     try:
         filepath.write_text(md_content, encoding="utf-8")
@@ -310,6 +499,7 @@ tags: [{", ".join(all_tags)}]
             "title": title,
             "category": detected_category,
             "video_saved": saved_video_rel,
+            "media_saved": saved_media_rel,
             "ai_analyzed": bool(ai_analysis),
             "tags": all_tags,
         })
