@@ -1,0 +1,5 @@
+.venv/
+.env
+data/
+raw_failed_queries.txt
+__pycache__/
