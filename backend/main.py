@@ -62,7 +62,7 @@ async def _call_deepagent(thread_id: str, message: str) -> str:
         "Content-Type": "application/json",
         "X-API-Key": DEEP_AGENT_API_KEY,
     }
-    payload = {"message": message, "thread_id": thread_id}
+    payload = {"message": message, "thread_id": thread_id, "context": "telegram"}
 
     response_text = "Sorry, I couldn't get a response from the agent."
 
@@ -178,19 +178,20 @@ async def handle_message(update: Update, context):
     thread_id = f"telegram-{chat_id}"
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # Prepend a context hint so the deepagent knows this is Telegram
-    # and should NOT use render_ui (which is only for the web dashboard)
     full_msg = (
-        "[Context: This message is from the Telegram bot. "
-        "Do NOT call render_ui — that tool is only for the web dashboard UI. "
-        "Format your response with emojis, clear sections, and a warm engaging tone. "
-        "Avoid raw markdown syntax like ** or ##; use emojis and newlines instead. "
-        "Be concise and friendly, like texting with a smart home assistant.]\n\n"
+        "[Telegram] Keep it short (2-6 lines). "
+        "Use plain text, no markdown. "
+        "For device control, try the obvious entity first. "
+        "For URLs, use process_and_save_link.\n\n"
         + user_msg
     )
 
     response_text = await _call_deepagent(thread_id=thread_id, message=full_msg)
     await _reply_formatted(update.message, response_text)
+
+    if app_ctx and app_ctx.episodic:
+        await app_ctx.episodic.add(chat_id, "user", user_msg)
+        await app_ctx.episodic.add(chat_id, "model", response_text)
 
 
 async def handle_photo(update: Update, context):
@@ -202,13 +203,15 @@ async def handle_photo(update: Update, context):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     message = (
-        "[Context: This message is from the Telegram bot. Do NOT call render_ui. "
-        "Format your response with emojis and a warm, conversational tone. "
-        "Be concise and direct.]\n\n"
+        "[Telegram] Keep it short, plain text.\n\n"
         f"[User sent a photo with caption: {caption}]"
     )
     response_text = await _call_deepagent(thread_id=thread_id, message=message)
     await _reply_formatted(update.message, response_text)
+
+    if app_ctx and app_ctx.episodic:
+        await app_ctx.episodic.add(chat_id, "user", f"[Photo] {caption}")
+        await app_ctx.episodic.add(chat_id, "model", response_text)
 
 
 

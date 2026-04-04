@@ -26,12 +26,37 @@ from tools.registry import ToolMap
 
 log = logging.getLogger("homebot.reactor")
 
-NOTIFICATION_COOLDOWN = 300  # 5 minutes per entity per rule
+NOTIFICATION_COOLDOWN = 300  # fallback if rule has no DB cooldown
 
 NOTABLE_DOMAINS = {
     "person", "device_tracker", "light", "switch", "fan", "climate",
     "media_player", "automation", "sensor", "binary_sensor", "camera", "lock",
 }
+
+# --- Event log noise filters (Phase 3) ---
+# Suffixes for sensors that change every few seconds and bloat the log
+_NOISY_SENSOR_SUFFIXES = (
+    "_voltage", "_current", "_signal_level", "_wi_fi_signal",
+    "_motor_speed",
+)
+# Exact entity_id matches for high-frequency bandwidth sensors
+_NOISY_SENSOR_IDS = frozenset({
+    "sensor.total_down", "sensor.total_up",
+    "sensor.bedroom_down", "sensor.bedroom_up",
+    "sensor.hallway_down", "sensor.hallway_up",
+})
+# Minimum change required to log numeric sensors (avoids micro-fluctuations)
+_SENSOR_MIN_CHANGE: dict[str, float] = {
+    "power": 5.0,       # watts
+    "energy": 0.1,      # kWh
+    "temperature": 0.5,  # degrees
+    "humidity": 2.0,     # percent
+    "battery": 1.0,      # percent
+    "pm25": 5.0,
+    "pm10": 5.0,
+}
+
+PRESENCE_DEBOUNCE_SECONDS = 180
 
 
 class Reactor:
@@ -47,6 +72,7 @@ class Reactor:
         self.scheduler = AsyncIOScheduler(timezone=config.TZ)
         self._tool_map: ToolMap | None = None
         self._notif_cooldowns: dict[str, float] = {}
+        self._pending_debounce: dict[str, asyncio.Task] = {}
 
     def set_tool_map(self, tool_map: ToolMap):
         self._tool_map = tool_map
@@ -99,13 +125,34 @@ class Reactor:
                 except Exception:
                     log.exception("Failed to schedule skill %s", skill["id"])
 
+    def _should_log_event(self, entity_id: str, old_val: str, new_val: str, attrs: dict) -> bool:
+        """Filter out noisy sensor events that bloat the event log."""
+        if entity_id in _NOISY_SENSOR_IDS:
+            return False
+        if entity_id.startswith("sensor."):
+            if any(entity_id.endswith(s) for s in _NOISY_SENSOR_SUFFIXES):
+                return False
+            dev_class = attrs.get("device_class", "")
+            min_change = _SENSOR_MIN_CHANGE.get(dev_class)
+            if min_change is not None:
+                try:
+                    if abs(float(new_val) - float(old_val)) < min_change:
+                        return False
+                except (ValueError, TypeError):
+                    pass
+        if entity_id.startswith("device_tracker."):
+            if old_val == "unavailable" or new_val == "unavailable":
+                return False
+        return True
+
     async def _on_state_change(self, entity_id: str, old_state: dict | None, new_state: dict):
         domain = entity_id.split(".")[0]
+        old_val = old_state.get("state", "") if old_state else ""
+        new_val = new_state.get("state", "")
+        attrs = new_state.get("attributes", {})
 
-        if domain in NOTABLE_DOMAINS:
-            old_val = old_state.get("state", "") if old_state else ""
-            new_val = new_state.get("state", "")
-            if old_val != new_val:
+        if domain in NOTABLE_DOMAINS and old_val != new_val:
+            if self._should_log_event(entity_id, old_val, new_val, attrs):
                 await self.procedural.log_event(
                     entity_id=entity_id,
                     old_state=old_val,
@@ -113,8 +160,57 @@ class Reactor:
                     event_type="state_change",
                 )
 
-        await self._check_proactive_notifications(entity_id, old_state, new_state)
+        if domain == "device_tracker" and ("unavailable" in (old_val, new_val)):
+            return
 
+        needs_debounce = (
+            domain == "device_tracker"
+            and attrs.get("source_type") == "router"
+        )
+
+        if needs_debounce:
+            await self._debounced_action(entity_id, old_state, new_state)
+        else:
+            await self._check_proactive_notifications(entity_id, old_state, new_state)
+            await self._check_skill_triggers(entity_id, old_state, new_state)
+
+    async def _debounced_action(self, entity_id: str, old_state: dict | None, new_state: dict):
+        """Wait PRESENCE_DEBOUNCE_SECONDS then re-check actual state before acting."""
+        prev_task = self._pending_debounce.pop(entity_id, None)
+        if prev_task and not prev_task.done():
+            prev_task.cancel()
+
+        task = asyncio.create_task(
+            self._debounce_wait(entity_id, old_state, new_state)
+        )
+        self._pending_debounce[entity_id] = task
+
+    async def _debounce_wait(self, entity_id: str, old_state: dict | None, new_state: dict):
+        try:
+            await asyncio.sleep(PRESENCE_DEBOUNCE_SECONDS)
+        except asyncio.CancelledError:
+            return
+
+        self._pending_debounce.pop(entity_id, None)
+
+        current = self.state.get(entity_id)
+        if not current:
+            return
+        current_val = current.get("state", "")
+        intended_val = new_state.get("state", "")
+
+        if current_val != intended_val:
+            log.info(
+                "Debounce suppressed %s: intended %s but now %s",
+                entity_id, intended_val, current_val,
+            )
+            return
+
+        log.info("Debounce confirmed %s -> %s", entity_id, current_val)
+        await self._check_proactive_notifications(entity_id, old_state, new_state)
+        await self._check_skill_triggers(entity_id, old_state, new_state)
+
+    async def _check_skill_triggers(self, entity_id: str, old_state: dict | None, new_state: dict):
         triggered_skills = await self.procedural.get_triggered_skills()
         for skill in triggered_skills:
             trigger = skill.get("trigger", {})
@@ -260,7 +356,7 @@ class Reactor:
                         "Content-Type": "application/json",
                         "X-API-Key": config.DEEP_AGENT_API_KEY,
                     },
-                    json={"message": prompt, "thread_id": thread_id},
+                    json={"message": prompt, "thread_id": thread_id, "context": "skill"},
                     timeout=aiohttp.ClientTimeout(total=120),
                 ) as resp:
                     if resp.status != 200:
@@ -292,11 +388,11 @@ class Reactor:
             log.exception("Unexpected error executing AI skill '%s' via deepagent", skill['name'])
             return f"Skill '{skill['name']}' failed: {e}"
 
-    def _can_notify(self, key: str) -> bool:
-        """Cooldown check to avoid notification spam."""
+    def _can_notify(self, key: str, cooldown: int = NOTIFICATION_COOLDOWN) -> bool:
+        """Cooldown check to avoid notification spam. Uses per-rule cooldown."""
         now = time.monotonic()
         last = self._notif_cooldowns.get(key, 0)
-        if now - last < NOTIFICATION_COOLDOWN:
+        if now - last < cooldown:
             return False
         self._notif_cooldowns[key] = now
         return True
@@ -327,11 +423,14 @@ class Reactor:
             r = rule_map.get(rule_id)
             return r.get("config", {}) if r else {}
 
+        def _rule_cooldown(rule_id: str, default: int = NOTIFICATION_COOLDOWN) -> int:
+            return _get_config(rule_id).get("cooldown", default)
+
         # 3D printer finished
         if _is_enabled("printer_done"):
             if "printo" in entity_id.lower() or "print" in friendly.lower():
                 if old_val in ("printing", "preparing") and new_val in ("idle", "complete", "standby", "off"):
-                    if self._can_notify(f"printer_done:{entity_id}"):
+                    if self._can_notify(f"printer_done:{entity_id}", _rule_cooldown("printer_done", 600)):
                         await self._send_notification(
                             f"Your 3D printer finished! {friendly} is now {new_val}."
                         )
@@ -343,7 +442,7 @@ class Reactor:
                 new_pct = float(new_val)
                 old_pct = float(old_val) if old_val else 100
                 if new_pct < threshold and old_pct >= threshold:
-                    if self._can_notify(f"battery_low:{entity_id}"):
+                    if self._can_notify(f"battery_low:{entity_id}", _rule_cooldown("battery_low", 3600)):
                         await self._send_notification(
                             f"Low battery: {friendly} is at {new_val}%"
                         )
@@ -354,13 +453,14 @@ class Reactor:
         if domain == "device_tracker" and attrs.get("source_type") == "router":
             device_type = attrs.get("device_type", "")
             if device_type == "deco" and _is_enabled("deco_offline"):
+                deco_cd = _rule_cooldown("deco_offline", 1800)
                 if old_val == "home" and new_val == "not_home":
-                    if self._can_notify(f"deco_offline:{entity_id}"):
+                    if self._can_notify(f"deco_offline:{entity_id}", deco_cd):
                         await self._send_notification(
                             f"Deco mesh node '{friendly}' went offline. Check your network connectivity."
                         )
                 elif old_val == "not_home" and new_val == "home":
-                    if self._can_notify(f"deco_online:{entity_id}"):
+                    if self._can_notify(f"deco_online:{entity_id}", deco_cd):
                         await self._send_notification(
                             f"Deco mesh node '{friendly}' is back online."
                         )
@@ -370,13 +470,13 @@ class Reactor:
                 )
                 is_important = any(kw in friendly.lower() for kw in keywords)
                 if is_important and old_val == "home" and new_val == "not_home":
-                    if self._can_notify(f"net_offline:{entity_id}"):
+                    if self._can_notify(f"net_offline:{entity_id}", _rule_cooldown("device_disconnect", 1800)):
                         await self._send_notification(
                             f"'{friendly}' disconnected from network "
                             f"(was on {attrs.get('deco_device', 'unknown')} node)."
                         )
 
-        # Person arriving/leaving home (HA person entities + Deco presence devices)
+        # Person arriving/leaving home
         is_presence_entity = False
         if domain == "person":
             is_presence_entity = True
@@ -394,8 +494,10 @@ class Reactor:
             if device_mac and device_mac in aliases:
                 presence_name = aliases[device_mac].get("alias", friendly)
 
+            presence_cd = _rule_cooldown("welcome_home", 1800)
+
             if old_val in ("not_home", "away") and new_val == "home" and _is_enabled("welcome_home"):
-                if self._can_notify(f"welcome:{entity_id}"):
+                if self._can_notify(f"welcome:{entity_id}", presence_cd):
                     lights_on = []
                     for eid, st in self.state._states.items():
                         if eid.startswith("light.") and st.get("state") == "on":
@@ -406,7 +508,7 @@ class Reactor:
                     await self._send_notification(f"Welcome home, {presence_name}! {status}.")
 
             elif old_val == "home" and new_val in ("not_home", "away") and _is_enabled("left_home"):
-                if self._can_notify(f"left:{entity_id}"):
+                if self._can_notify(f"left:{entity_id}", presence_cd):
                     left_on = []
                     for eid, st in self.state._states.items():
                         if eid.startswith(("light.", "switch.")) and st.get("state") == "on":

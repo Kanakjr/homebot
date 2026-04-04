@@ -36,15 +36,22 @@ _agents: dict[str, tuple] = {}
 _skills_files: dict = {}
 
 
-async def _get_agent(model: str | None = None):
+async def _get_agent(model: str | None = None, context: str = "dashboard"):
     global _skills_files
+    use_render_ui = context == "dashboard"
+
+    if context in ("telegram", "skill") and not model:
+        model = config.TELEGRAM_MODEL
+
     model_key = model or config.MODEL
-    if model_key not in _agents:
-        agent, files = await build_agent(model=model_key)
-        _agents[model_key] = (agent, files)
+    cache_key = f"{model_key}:{'ui' if use_render_ui else 'no-ui'}"
+
+    if cache_key not in _agents:
+        agent, files = await build_agent(model=model_key, include_render_ui=use_render_ui)
+        _agents[cache_key] = (agent, files)
         if not _skills_files:
             _skills_files = files
-    return _agents[model_key]
+    return _agents[cache_key]
 
 
 # -- Auth middleware ----------------------------------------------------------
@@ -68,6 +75,7 @@ class ChatRequest(BaseModel):
     thread_id: str = "default"
     model: str | None = None
     tags: list[str] = []
+    context: str = "dashboard"  # "dashboard", "telegram", or "skill"
 
 
 # -- Endpoints ----------------------------------------------------------------
@@ -141,7 +149,7 @@ async def chat_stream(req: ChatRequest):
                 content={"detail": f"Model {req.model} is not eligible for Deep Agent (Qwen > {config.DEEPAGENT_MAX_QWEN_B}B excluded)."},
             )
 
-    agent, skills_files = await _get_agent(req.model)
+    agent, skills_files = await _get_agent(req.model, context=req.context)
 
     async def event_generator():
         final_text = ""

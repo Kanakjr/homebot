@@ -10,6 +10,7 @@ load_dotenv()
 # --- LLM ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 MODEL = os.getenv("MODEL", "ollama:gemma4:e2b")
+TELEGRAM_MODEL = os.getenv("TELEGRAM_MODEL", "google_genai:gemini-2.5-flash")
 EXTRA_MODELS = [
     m.strip() for m in
     os.getenv("EXTRA_MODELS", "google_genai:gemini-2.5-flash-lite,google_genai:gemini-3-flash-preview,google_genai:gemini-3.1-flash-lite-preview").split(",")

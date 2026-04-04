@@ -386,30 +386,37 @@ class ProceduralMemory:
 
     _DEFAULT_NOTIFICATION_RULES: list[dict] = [
         {"id": "printer_done", "name": "3D Printer Finished", "rule_type": "printer_done",
-         "config": {}, "cooldown_seconds": 300},
+         "config": {"cooldown": 600}, "cooldown_seconds": 600},
         {"id": "battery_low", "name": "Battery Low", "rule_type": "battery_low",
-         "config": {"threshold": 15}, "cooldown_seconds": 300},
+         "config": {"threshold": 15, "cooldown": 3600}, "cooldown_seconds": 3600},
         {"id": "welcome_home", "name": "Welcome Home", "rule_type": "welcome_home",
-         "config": {}, "cooldown_seconds": 300},
+         "config": {"cooldown": 1800}, "cooldown_seconds": 1800},
         {"id": "left_home", "name": "Left Home", "rule_type": "left_home",
-         "config": {}, "cooldown_seconds": 300},
+         "config": {"cooldown": 1800}, "cooldown_seconds": 1800},
         {"id": "deco_offline", "name": "Deco Node Offline", "rule_type": "deco_offline",
-         "config": {}, "cooldown_seconds": 300},
+         "config": {"cooldown": 1800}, "cooldown_seconds": 1800},
         {"id": "device_disconnect", "name": "Device Disconnected", "rule_type": "device_disconnect",
-         "config": {"important_keywords": ["mac mini", "pixel", "ipad", "printer", "server"]},
-         "cooldown_seconds": 300},
+         "config": {"important_keywords": ["mac mini", "pixel", "ipad", "printer", "server"], "cooldown": 1800},
+         "cooldown_seconds": 1800},
     ]
 
     async def ensure_default_notification_rules(self):
         for rule in self._DEFAULT_NOTIFICATION_RULES:
             cursor = await self._db.execute(
-                "SELECT id FROM notification_rules WHERE id = ?", (rule["id"],)
+                "SELECT id, cooldown_seconds FROM notification_rules WHERE id = ?", (rule["id"],)
             )
-            if not await cursor.fetchone():
+            row = await cursor.fetchone()
+            if not row:
                 await self._db.execute(
                     "INSERT INTO notification_rules (id, name, enabled, rule_type, config_json, cooldown_seconds) VALUES (?, ?, 1, ?, ?, ?)",
                     (rule["id"], rule["name"], rule["rule_type"], json.dumps(rule["config"]), rule["cooldown_seconds"]),
                 )
+            elif row[1] != rule["cooldown_seconds"]:
+                await self._db.execute(
+                    "UPDATE notification_rules SET cooldown_seconds = ?, config_json = ? WHERE id = ?",
+                    (rule["cooldown_seconds"], json.dumps(rule["config"]), rule["id"]),
+                )
+                log.info("Updated notification rule cooldown: %s -> %ds", rule["id"], rule["cooldown_seconds"])
         await self._db.commit()
 
     _DEFAULT_SKILLS: list[dict] = [
@@ -421,13 +428,12 @@ class ProceduralMemory:
             "mode": "ai",
             "ai_prompt": (
                 "Generate a concise daily digest for Kanak. Include:\n"
-                "1. Summary of today's activity (lights, switches toggled, device usage patterns)\n"
-                "2. Energy/power highlights from sensor data (current draw, total kWh today)\n"
-                "3. Air quality summary (PM2.5, AQI levels -- flag if unhealthy)\n"
-                "4. Network status (any Deco nodes or important devices that went offline)\n"
-                "5. Any notable events (printer jobs, unusual activity, skill triggers)\n"
-                "6. Current state of the home (who's home, what's on)\n"
-                "Keep it short and useful -- 6-10 bullet points max."
+                "1. Energy/power highlights (current draw, total kWh today)\n"
+                "2. Air quality summary (flag only if unhealthy)\n"
+                "3. Notable events only (printer jobs, unusual activity)\n"
+                "4. Current state of the home (who's home, what's on)\n"
+                "Skip sections with nothing to report. Aim for 4-6 lines max. "
+                "If it was a quiet day, say so in one sentence and just show current state."
             ),
             "notify": True,
         },
@@ -458,12 +464,11 @@ class ProceduralMemory:
             "ai_prompt": (
                 "Generate a concise morning briefing for Kanak. Include:\n"
                 "1. Current weather conditions\n"
-                "2. Overnight events from the event log (anything notable while sleeping)\n"
+                "2. Overnight events (only if something notable happened)\n"
                 "3. Battery warnings (any devices below 20%)\n"
-                "4. Current device status (what's on, what's off)\n"
-                "5. Air quality check (is it safe to open windows?)\n"
-                "6. Today's energy baseline (current power draw)\n"
-                "Keep it brief and actionable -- 5-7 bullet points."
+                "4. Air quality check (is it safe to open windows?)\n"
+                "If nothing notable happened overnight, just give weather + air quality in 2-3 lines. "
+                "Skip sections that have nothing to report."
             ),
             "notify": True,
         },
@@ -519,16 +524,14 @@ class ProceduralMemory:
         {
             "id": "network_health_check",
             "name": "Network Health Check",
-            "description": "Daily check of Deco mesh nodes, connected devices, and bandwidth (noon)",
-            "trigger": {"type": "schedule", "cron": "0 12 * * *"},
+            "description": "Weekly check of Deco mesh nodes, connectivity, and bandwidth (Sunday noon)",
+            "trigger": {"type": "schedule", "cron": "0 12 * * 0"},
             "mode": "ai",
             "ai_prompt": (
-                "Run a network health check. Include:\n"
-                "1. Status of all Deco mesh nodes (online/offline)\n"
-                "2. Flag any important devices that are offline (use ha_find_entities with domain device_tracker)\n"
-                "3. Check bandwidth sensors for anomalies\n"
-                "4. Report total connected clients if available\n"
-                "Only report issues -- if everything is healthy, keep it to one line."
+                "Run a weekly network health check. "
+                "Check Deco mesh node status and flag any important offline devices. "
+                "If everything is healthy, reply with a single sentence confirming that. "
+                "Only provide detail if there are actual issues."
             ),
             "notify": True,
         },
@@ -604,6 +607,8 @@ class ProceduralMemory:
                     updates["ai_prompt"] = skill_def["ai_prompt"]
                 if existing["description"] != skill_def["description"]:
                     updates["description"] = skill_def["description"]
+                if existing["trigger"] != skill_def["trigger"]:
+                    updates["trigger"] = skill_def["trigger"]
                 if updates:
                     await self.update_skill(skill_def["id"], updates)
                     log.info("Updated default skill: %s", skill_def["name"])

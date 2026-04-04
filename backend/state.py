@@ -292,6 +292,8 @@ class StateCache:
 
             elif domain == "sensor":
                 dev_class = attrs.get("device_class", "")
+                if dev_class == "data_rate" and not context_match:
+                    continue
                 if dev_class not in self._USEFUL_SENSOR_CLASSES and not context_match:
                     continue
                 unit = attrs.get("unit_of_measurement", "")
@@ -331,7 +333,7 @@ class StateCache:
                     continue
                 _add("Switches", f"{friendly}: {state_val}")
 
-        # Recent changes (last 10 minutes)
+        # Recent changes (last 10 minutes) -- filtered for noise
         now = time.monotonic()
         recent = [
             (eid, old, new)
@@ -339,12 +341,27 @@ class StateCache:
             if now - ts < RECENT_CHANGES_WINDOW
         ]
         if recent:
-            # Deduplicate: keep only the latest change per entity
             seen = {}
             for eid, old, new in recent:
+                if eid.startswith("sensor.") and any(
+                    eid.endswith(s) for s in (
+                        "_voltage", "_current", "_signal_level",
+                        "_wi_fi_signal", "_motor_speed",
+                    )
+                ):
+                    continue
+                if eid in (
+                    "sensor.total_down", "sensor.total_up",
+                    "sensor.bedroom_down", "sensor.bedroom_up",
+                    "sensor.hallway_down", "sensor.hallway_up",
+                ):
+                    continue
+                if "unavailable" in (old, new):
+                    continue
                 seen[eid] = (old, new)
-            change_lines = [f"{eid}: {old}->{new}" for eid, (old, new) in seen.items()]
-            _add("Recent Changes", " | ".join(change_lines[-10:]))
+            if seen:
+                change_lines = [f"{eid}: {old}->{new}" for eid, (old, new) in seen.items()]
+                _add("Recent Changes", " | ".join(change_lines[-10:]))
 
         # Anomaly detection
         anomalies = self._detect_anomalies()
