@@ -45,6 +45,7 @@ BASE_DIR = Path(__file__).resolve().parent
 SKILLS_DIR = str(BASE_DIR / "skills")
 DATA_DIR = Path(os.getenv("DATA_DIR", "/tmp/deepagent_data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+CHECKPOINT_DB = str(DATA_DIR / os.getenv("CHECKPOINT_DB", "checkpoints.db"))
 OBSIDIAN_VAULT_PATH = os.getenv("OBSIDIAN_VAULT_PATH", "/Users/kanakjr/Documents/Obsidian/Obsidian")
 # Long-term markdown memory lives under this subfolder of the Obsidian vault (human-editable in Obsidian).
 HOMEBOT_BRAIN_SUBDIR = os.getenv("HOMEBOT_BRAIN_SUBDIR", "homebot-brain")

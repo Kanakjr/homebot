@@ -36,11 +36,11 @@ _agents: dict[str, tuple] = {}
 _skills_files: dict = {}
 
 
-def _get_agent(model: str | None = None):
+async def _get_agent(model: str | None = None):
     global _skills_files
     model_key = model or config.MODEL
     if model_key not in _agents:
-        agent, files = build_agent(model=model_key)
+        agent, files = await build_agent(model=model_key)
         _agents[model_key] = (agent, files)
         if not _skills_files:
             _skills_files = files
@@ -141,7 +141,7 @@ async def chat_stream(req: ChatRequest):
                 content={"detail": f"Model {req.model} is not eligible for Deep Agent (Qwen > {config.DEEPAGENT_MAX_QWEN_B}B excluded)."},
             )
 
-    agent, skills_files = _get_agent(req.model)
+    agent, skills_files = await _get_agent(req.model)
 
     async def event_generator():
         final_text = ""

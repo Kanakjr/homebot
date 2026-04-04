@@ -7,7 +7,7 @@ from deepagents.backends import LocalShellBackend
 from deepagents.backends.utils import create_file_data
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 import config
 from tools import get_all_tools
@@ -138,6 +138,21 @@ def _load_skills_files() -> dict:
     return files
 
 
+def _load_memory_files() -> dict:
+    """Load AGENTS.md files from the memories directory into virtual filesystem format."""
+    from pathlib import Path
+
+    memories_root = Path(config.BASE_DIR) / "memories"
+    files = {}
+    if memories_root.is_dir():
+        for md_file in memories_root.rglob("AGENTS.md"):
+            virtual_path = "/memories/" + str(md_file.relative_to(memories_root))
+            content = md_file.read_text()
+            files[virtual_path] = create_file_data(content)
+            log.info("Loaded memory: %s", virtual_path)
+    return files
+
+
 def _resolve_model(model_spec: str) -> str | BaseChatModel:
     """Turn provider:model into a chat model; Ollama needs base_url (not localhost in Docker)."""
     if model_spec.startswith("ollama:"):
@@ -145,7 +160,19 @@ def _resolve_model(model_spec: str) -> str | BaseChatModel:
     return model_spec
 
 
-def build_agent(model: str | None = None):
+async def _create_checkpointer() -> AsyncSqliteSaver:
+    """Create a persistent async SQLite checkpointer at the configured DB path."""
+    import aiosqlite
+
+    db_path = config.CHECKPOINT_DB
+    log.info("Using persistent checkpointer at %s", db_path)
+    conn = await aiosqlite.connect(db_path)
+    saver = AsyncSqliteSaver(conn)
+    await saver.setup()
+    return saver
+
+
+async def build_agent(model: str | None = None):
     """Build and return the deep agent graph.
 
     *model* overrides ``config.MODEL`` when provided. Accepts the
@@ -156,21 +183,29 @@ def build_agent(model: str | None = None):
 
     all_tools = get_all_tools()
     skills_files = _load_skills_files()
+    memory_files = _load_memory_files()
 
     resolved = _resolve_model(effective_model)
+    checkpointer = await _create_checkpointer()
+
+    all_files = {**skills_files, **memory_files}
+
+    memory_paths = ["/memories/"] if memory_files else None
 
     agent = create_deep_agent(
         model=resolved,
         tools=all_tools,
         system_prompt=SYSTEM_PROMPT,
         skills=["/skills/"],
-        checkpointer=MemorySaver(),
+        memory=memory_paths,
+        checkpointer=checkpointer,
         backend=LocalShellBackend(root_dir=str(config.DATA_DIR)),
     )
 
     log.info(
-        "Deep agent ready with %d tools and %d skills",
+        "Deep agent ready with %d tools, %d skills, %d memory files",
         len(all_tools),
         len(skills_files),
+        len(memory_files),
     )
-    return agent, skills_files
+    return agent, all_files

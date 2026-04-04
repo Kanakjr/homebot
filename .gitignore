@@ -57,3 +57,5 @@ docker-compose.override.yml
 .smbdelete*
 transcoder/data/
 youtube-series/
+deepagent/data/
+deepagent/memories/
