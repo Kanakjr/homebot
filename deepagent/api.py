@@ -67,6 +67,7 @@ class ChatRequest(BaseModel):
     message: str
     thread_id: str = "default"
     model: str | None = None
+    tags: list[str] = []
 
 
 # -- Endpoints ----------------------------------------------------------------
@@ -151,12 +152,16 @@ async def chat_stream(req: ChatRequest):
         try:
             yield _sse("thinking", {"type": "thinking"})
 
+            run_config = {"configurable": {"thread_id": req.thread_id}}
+            if req.tags:
+                run_config["tags"] = req.tags
+
             async for chunk in agent.astream(
                 {
                     "messages": [{"role": "user", "content": req.message}],
                     "files": skills_files,
                 },
-                config={"configurable": {"thread_id": req.thread_id}},
+                config=run_config,
             ):
                 for node_name, update in chunk.items():
                     messages = _extract_messages(update)

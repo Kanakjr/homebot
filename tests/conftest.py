@@ -44,6 +44,14 @@ MODEL_REGISTRY: dict[str, dict] = {
         "provider": "ollama",
         "model": "sorc/qwen3.5-claude-4.6-opus-q4:2b",
     },
+    "gemma4:e2b": {
+        "provider": "ollama",
+        "model": "gemma4:e2b",
+    },
+    "gemma4:latest": {
+        "provider": "ollama",
+        "model": "gemma4:latest",
+    },
 }
 
 _config_url = getattr(config, "OLLAMA_URL", "http://localhost:11434")

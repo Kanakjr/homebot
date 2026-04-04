@@ -1,7 +1,8 @@
 """LLM factory with local Ollama support and Gemini fallback.
 
-Provides a unified interface for "lazy" AI tasks (summaries, cron skills)
+Provides a unified interface for non-agentic AI tasks (summaries, cron skills)
 that tries a local Ollama model first and falls back to Gemini on failure.
+Default local model: gemma4:latest (configurable via OLLAMA_MODEL).
 """
 
 import logging
