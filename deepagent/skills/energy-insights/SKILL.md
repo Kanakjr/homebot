@@ -9,14 +9,14 @@ tags: [energy, power, sensors, battery, temperature, humidity, air-quality, envi
 ## Known Entities (use directly, no search needed)
 
 ### Indoor Environment
-- `sensor.sensor_temperature` -- Room temperature (C)
-- `sensor.sensor_humidity` -- Room humidity (%)
-- `sensor.xiaomi_smart_air_purifier_4_temperature` -- Purifier temperature reading (C)
-- `sensor.xiaomi_smart_air_purifier_4_humidity` -- Purifier humidity reading (%)
-- `sensor.xiaomi_smart_air_purifier_4_pm2_5` -- PM2.5 air quality (ug/m3)
+- `sensor.room_temperature` -- Room temperature (C)
+- `sensor.room_humidity` -- Room humidity (%)
+- `sensor.air_purifier_temperature` -- Purifier temperature reading (C)
+- `sensor.air_purifier_humidity` -- Purifier humidity reading (%)
+- `sensor.air_purifier_pm2_5` -- PM2.5 air quality (ug/m3)
 
 ### Power (real-time watts)
-- `sensor.monitor_plug_current_consumption` -- Desk monitor plug (W)
+- `sensor.monitor_plug_current_consumption` -- Desk plug (W)
 - `sensor.workstation_current_consumption` -- Workstation plug (W)
 
 ### Energy (cumulative kWh)
@@ -27,8 +27,8 @@ tags: [energy, power, sensors, battery, temperature, humidity, air-quality, envi
 
 ### Battery Levels
 - `sensor.ipad_battery_level` -- iPad (%)
-- `sensor.pixel_9_pro_battery_level` -- Pixel 9 Pro (%)
-- `sensor.galaxy_watch8_classic_krbx_battery_level` -- Galaxy Watch (%)
+- `sensor.pixel_battery_level` -- Pixel 9 Pro (%)
+- `sensor.watch_battery_level` -- Galaxy Watch (%)
 
 ## Efficient Queries
 

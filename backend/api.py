@@ -682,32 +682,32 @@ async def get_events(hours: int = 24, limit: int = 200):
 
 
 HEALTH_ENTITIES = {
-    "heart_rate": "sensor.galaxy_watch8_classic_krbx_heart_rate",
-    "steps": "sensor.galaxy_watch8_classic_krbx_daily_steps",
-    "steps_total": "sensor.galaxy_watch8_classic_krbx_steps_sensor",
-    "calories": "sensor.galaxy_watch8_classic_krbx_daily_calories",
-    "distance": "sensor.galaxy_watch8_classic_krbx_daily_distance",
-    "floors": "sensor.galaxy_watch8_classic_krbx_daily_floors",
-    "activity": "sensor.galaxy_watch8_classic_krbx_activity_state",
-    "pressure": "sensor.galaxy_watch8_classic_krbx_pressure_sensor",
-    "on_body": "binary_sensor.galaxy_watch8_classic_krbx_on_body_sensor",
-    "watch_battery": "sensor.galaxy_watch8_classic_krbx_battery_level",
-    "watch_battery_state": "sensor.galaxy_watch8_classic_krbx_battery_state",
-    "watch_charger": "sensor.galaxy_watch8_classic_krbx_charger_type",
-    "pixel_activity": "sensor.pixel_9_pro_detected_activity",
-    "pixel_battery": "sensor.pixel_9_pro_battery_level",
-    "pixel_battery_state": "sensor.pixel_9_pro_battery_state",
-    "pixel_steps": "sensor.pixel_9_pro_daily_steps",
-    "pixel_distance": "sensor.pixel_9_pro_daily_distance",
-    "pixel_sleep": "sensor.pixel_9_pro_sleep_duration",
-    "pixel_location": "sensor.pixel_9_pro_geocoded_location",
+    "heart_rate": "sensor.watch_heart_rate",
+    "steps": "sensor.watch_daily_steps",
+    "steps_total": "sensor.watch_step_count",
+    "calories": "sensor.watch_daily_calories",
+    "distance": "sensor.watch_daily_distance",
+    "floors": "sensor.watch_daily_floors",
+    "activity": "sensor.watch_activity_state",
+    "pressure": "sensor.watch_pressure",
+    "on_body": "binary_sensor.watch_on_body",
+    "watch_battery": "sensor.watch_battery_level",
+    "watch_battery_state": "sensor.watch_battery_state",
+    "watch_charger": "sensor.watch_charger_type",
+    "pixel_activity": "sensor.pixel_activity",
+    "pixel_battery": "sensor.pixel_battery_level",
+    "pixel_battery_state": "sensor.pixel_battery_state",
+    "pixel_steps": "sensor.pixel_daily_steps",
+    "pixel_distance": "sensor.pixel_daily_distance",
+    "pixel_sleep": "sensor.pixel_sleep_duration",
+    "pixel_location": "sensor.pixel_geocoded_location",
 }
 
 HISTORY_ENTITIES = [
-    "sensor.galaxy_watch8_classic_krbx_heart_rate",
-    "sensor.galaxy_watch8_classic_krbx_daily_steps",
-    "sensor.galaxy_watch8_classic_krbx_daily_calories",
-    "sensor.galaxy_watch8_classic_krbx_pressure_sensor",
+    "sensor.watch_heart_rate",
+    "sensor.watch_daily_steps",
+    "sensor.watch_daily_calories",
+    "sensor.watch_pressure",
 ]
 
 
@@ -1567,17 +1567,17 @@ async def delete_scene(scene_id: str):
 
 DEFAULT_FLOORPLAN_CONFIG = {
     "devices": [
-        {"svg_id": "light_bed", "entity_id": "light.bedside", "type": "light", "label": "Bedroom Light"},
-        {"svg_id": "light_foyer", "entity_id": "light.foyer", "type": "light", "label": "Foyer Light"},
-        {"svg_id": "light_lamp", "entity_id": "light.desk_lamp", "type": "light", "label": "Desk Lamp"},
-        {"svg_id": "plug_desk", "entity_id": "switch.desk", "type": "switch", "label": "Desk Plug"},
-        {"svg_id": "plug_printer", "entity_id": "switch.workstation", "type": "switch", "label": "Printer Plug"},
+        {"svg_id": "light_bed", "entity_id": "light.bedside", "type": "light", "label": "Bedside lamp"},
+        {"svg_id": "light_lamp", "entity_id": "light.table_lamp", "type": "light", "label": "Table lamp"},
+        {"svg_id": "plug_desk", "entity_id": "switch.monitor_plug", "type": "switch", "label": "Desk plug"},
+        {"svg_id": "plug_workstation", "entity_id": "switch.workstation", "type": "switch", "label": "Workstation plug"},
         {"svg_id": "router_hallway", "entity_id": "device_tracker.hallway_deco", "type": "device_tracker", "label": "Hallway Router"},
         {"svg_id": "router_bedroom", "entity_id": "device_tracker.bedroom_deco", "type": "device_tracker", "label": "Bedroom Router"},
-        {"svg_id": "camera_living", "entity_id": "camera.a1_03919d550407275_camera", "type": "camera", "label": "3D Printer Camera"},
-        {"svg_id": "device_air_purifier", "entity_id": "fan.xiaomi_smart_air_purifier_4", "type": "fan", "label": "Air Purifier"},
-        {"svg_id": "device_3d_printer", "entity_id": "sensor.a1_03919d550407275_print_status", "type": "sensor", "label": "3D Printer"},
-        {"svg_id": "sensor_foyer", "entity_id": "sensor.sensor_temperature", "type": "sensor", "label": "Foyer Sensor"},
+        {"svg_id": "camera_printer", "entity_id": "camera.printer", "type": "camera", "label": "3D Printer Camera"},
+        {"svg_id": "camera_bedroom", "entity_id": "camera.bedroom_camera_live_view", "type": "camera", "label": "Bedroom Camera"},
+        {"svg_id": "device_air_purifier", "entity_id": "fan.air_purifier", "type": "fan", "label": "Air Purifier"},
+        {"svg_id": "device_3d_printer", "entity_id": "sensor.printer_status", "type": "sensor", "label": "3D Printer"},
+        {"svg_id": "sensor_room", "entity_id": "sensor.room_temperature", "type": "sensor", "label": "Room Sensor"},
     ]
 }
 

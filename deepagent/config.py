@@ -22,6 +22,14 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 # --- Home Assistant ---
 HA_URL = os.getenv("HA_URL", "http://localhost:8123")
 HA_TOKEN = os.getenv("HA_TOKEN", "")
+# Entities completely hidden from the agent: filtered out of ha_get_states /
+# ha_search_entities, and ha_call_service refuses to target them.
+# Comma-separated env override: HA_HIDDEN_ENTITIES="light.foo,switch.bar"
+HA_HIDDEN_ENTITIES = frozenset(
+    e.strip() for e in
+    os.getenv("HA_HIDDEN_ENTITIES", "light.printer_chamber_light").split(",")
+    if e.strip()
+)
 
 # --- Media Services ---
 SONARR_URL = os.getenv("SONARR_URL", "http://localhost:8989")

@@ -26,7 +26,7 @@ def create_scene_tools(procedural, state_cache):
     async def _create_scene(name: str, entity_ids: str) -> str:
         """Save the current state of specific entities as a reusable scene.
         name: Human-friendly scene name (e.g. "Movie Night", "Good Morning")
-        entity_ids: Comma-separated entity_ids to snapshot (e.g. "light.bedroom,switch.desk,fan.xiaomi_smart_air_purifier_4")
+        entity_ids: Comma-separated entity_ids to snapshot (e.g. "light.bedside,switch.monitor_plug,fan.air_purifier")
         """
         ids = [e.strip() for e in entity_ids.split(",") if e.strip()]
         if not ids:

@@ -28,7 +28,6 @@ Count those with state "home" for connected device count.
 
 ### Presence
 - `person.kanak` -- state "home" or "not_home"
-- `person.sarath` -- state "home" or "not_home"
 
 ## Efficiency
 

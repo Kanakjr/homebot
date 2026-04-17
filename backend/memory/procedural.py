@@ -546,7 +546,7 @@ class ProceduralMemory:
             "id": "arrival_lights",
             "name": "Arrival Lights",
             "description": "Turn on hallway lights when a household member arrives home via Deco network detection",
-            "trigger": {"type": "state_change", "entity_id": "device_tracker.pixel9pro", "to": "home", "from": "not_home"},
+            "trigger": {"type": "state_change", "entity_id": "device_tracker.pixel", "to": "home", "from": "not_home"},
             "mode": "ai",
             "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
@@ -562,7 +562,7 @@ class ProceduralMemory:
             "id": "last_person_left",
             "name": "Last Person Left",
             "description": "Check and report devices left on when the last tracked person leaves home",
-            "trigger": {"type": "state_change", "entity_id": "device_tracker.pixel9pro", "to": "not_home", "from": "home"},
+            "trigger": {"type": "state_change", "entity_id": "device_tracker.pixel", "to": "not_home", "from": "home"},
             "mode": "ai",
             "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (

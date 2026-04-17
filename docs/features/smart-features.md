@@ -36,7 +36,7 @@ State changes are kept in a **rolling ten-minute buffer**. The summary can inclu
 Example:
 
 ```text
-Recent Changes: light.bedside: off->on | switch.desk: on->off
+Recent Changes: light.bedside: off->on | switch.monitor_plug: on->off
 ```
 
 ## Anomaly detection

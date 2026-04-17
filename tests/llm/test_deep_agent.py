@@ -43,12 +43,13 @@ def ha_call_service(domain: str, service: str, entity_id: str, data: str = "{}")
 def ha_get_states(domain: str = "") -> str:
     """Get current states of Home Assistant entities, optionally filtered by domain."""
     states = [
-        {"entity_id": "light.bedside", "state": "off", "attributes": {"friendly_name": "Bedside", "brightness": 0}},
-        {"entity_id": "light.chamber_light", "state": "on", "attributes": {"friendly_name": "3D Printer Chamber"}},
-        {"entity_id": "switch.monitor_plug", "state": "on", "attributes": {"friendly_name": "Monitor Plug"}},
-        {"entity_id": "fan.air_purifier", "state": "off", "attributes": {"friendly_name": "Air Purifier"}},
-        {"entity_id": "sensor.temperature", "state": "26", "attributes": {"unit": "C", "friendly_name": "Room Temperature"}},
-        {"entity_id": "sensor.humidity", "state": "52", "attributes": {"unit": "%", "friendly_name": "Room Humidity"}},
+        {"entity_id": "light.bedside", "state": "off", "attributes": {"friendly_name": "Bedside lamp", "brightness": 0}},
+        {"entity_id": "light.table_lamp", "state": "off", "attributes": {"friendly_name": "Table lamp"}},
+        {"entity_id": "light.printer_chamber_light", "state": "on", "attributes": {"friendly_name": "Printer chamber light"}},
+        {"entity_id": "switch.monitor_plug", "state": "on", "attributes": {"friendly_name": "Desk plug"}},
+        {"entity_id": "fan.air_purifier", "state": "off", "attributes": {"friendly_name": "Air purifier"}},
+        {"entity_id": "sensor.room_temperature", "state": "26", "attributes": {"unit": "C", "friendly_name": "Room temperature"}},
+        {"entity_id": "sensor.room_humidity", "state": "52", "attributes": {"unit": "%", "friendly_name": "Room humidity"}},
         {"entity_id": "person.kanak", "state": "home", "attributes": {"friendly_name": "Kanak"}},
     ]
     if domain:
@@ -59,8 +60,8 @@ def ha_get_states(domain: str = "") -> str:
 def ha_search_entities(query: str) -> str:
     """Search for Home Assistant entities by name or keyword."""
     results = [
-        {"entity_id": "light.bedside", "friendly_name": "Bedside", "state": "off"},
-        {"entity_id": "switch.monitor_plug", "friendly_name": "Monitor Plug", "state": "on"},
+        {"entity_id": "light.bedside", "friendly_name": "Bedside lamp", "state": "off"},
+        {"entity_id": "switch.monitor_plug", "friendly_name": "Desk plug", "state": "on"},
     ]
     return json.dumps(results)
 
@@ -143,12 +144,12 @@ DEEP_AGENT_TOOLS = [
 
 SYSTEM_PROMPT = """\
 You are HomeBotAI, an intelligent smart-home assistant powered by Home Assistant.
-The home is in India (IST timezone). Residents: Kanak and Sarath.
+The home is in India (IST timezone). Resident: Kanak.
 
-Lights: light.bedside (Bedside lamp), light.chamber_light (3D printer chamber)
-Plugs: switch.monitor_plug (Desk monitor), switch.workstation
+Lights: light.bedside (Bedside lamp), light.table_lamp (Bedroom table lamp), light.printer_chamber_light (3D printer chamber)
+Plugs: switch.monitor_plug (Desk plug), switch.workstation (Workstation plug)
 Fans: fan.air_purifier
-Sensors: sensor.temperature, sensor.humidity
+Sensors: sensor.room_temperature, sensor.room_humidity
 
 Tools available: ha_call_service, ha_get_states, ha_search_entities, \
 sonarr_search, sonarr_get_queue, radarr_search, jellyfin_search, \
@@ -328,13 +329,9 @@ def _validate_memory_query(response, tool_calls):
 
 def _validate_system_knowledge(response, tool_calls):
     text = response.lower()
-    has_kanak = "kanak" in text
-    has_sarath = "sarath" in text
-    if has_kanak and has_sarath:
-        return True, "Both residents mentioned"
-    if has_kanak or has_sarath:
-        return True, f"Partial: kanak={has_kanak}, sarath={has_sarath}"
-    return False, "Neither resident mentioned in response"
+    if "kanak" in text:
+        return True, "Resident Kanak mentioned"
+    return False, "Kanak not mentioned in response"
 
 
 def _validate_complex_media(response, tool_calls):

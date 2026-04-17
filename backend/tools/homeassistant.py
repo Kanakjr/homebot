@@ -34,7 +34,7 @@ async def ha_call_service(
     """Call a Home Assistant service to control a device (turn on/off lights, set temperature, activate scene, etc.).
     domain: Service domain (light, switch, scene, fan, climate, media_player, etc.)
     service: Service name (turn_on, turn_off, toggle, set_temperature, etc.)
-    entity_id: Target entity_id (e.g. light.bedroom, scene.movie_time)
+    entity_id: Target entity_id (e.g. light.bedside, switch.monitor_plug)
     data: Additional service data as JSON string, e.g. {"brightness": 128}
     """
     try:

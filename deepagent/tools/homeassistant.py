@@ -17,6 +17,10 @@ def _headers() -> dict:
     }
 
 
+def _is_hidden(entity_id: str) -> bool:
+    return bool(entity_id) and entity_id in config.HA_HIDDEN_ENTITIES
+
+
 async def ha_call_service(
     domain: str,
     service: str,
@@ -31,6 +35,12 @@ async def ha_call_service(
         entity_id: Target entity_id (e.g. light.bedroom, switch.printer_plug)
         data: Additional service data as JSON string, e.g. {"brightness": 128, "color_temp_kelvin": 4000}
     """
+    if _is_hidden(entity_id):
+        return json.dumps({
+            "status": "error",
+            "detail": f"Entity {entity_id} is not available in HomeBot.",
+        })
+
     try:
         extra_data = json.loads(data) if isinstance(data, str) and data else {}
     except json.JSONDecodeError:
@@ -70,6 +80,7 @@ async def ha_get_states(domain: str = "", limit: int = 150) -> str:
 
     if domain:
         states = [s for s in states if s.get("entity_id", "").startswith(domain + ".")]
+    states = [s for s in states if not _is_hidden(s.get("entity_id", ""))]
 
     results = []
     for s in states[:limit]:
@@ -109,6 +120,8 @@ async def ha_search_entities(query: str, domain: str = "") -> str:
     matches = []
     for s in states:
         eid = s.get("entity_id", "")
+        if _is_hidden(eid):
+            continue
         if domain and not eid.startswith(domain + "."):
             continue
         attrs = s.get("attributes", {})

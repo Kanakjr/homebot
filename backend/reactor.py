@@ -391,7 +391,7 @@ class Reactor:
 
         # 3D printer finished
         if _is_enabled("printer_done"):
-            if "printo" in entity_id.lower() or "print" in friendly.lower():
+            if ".printer" in entity_id.lower() or "printer" in friendly.lower():
                 if old_val in ("printing", "preparing") and new_val in ("idle", "complete", "standby", "off"):
                     if self._can_notify(f"printer_done:{entity_id}", _rule_cooldown("printer_done", 600)):
                         await self._send_notification(

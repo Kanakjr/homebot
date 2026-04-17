@@ -14,11 +14,11 @@ interface PresencePillConfig {
 const DEFAULT_PILLS: PresencePillConfig[] = [
   { entity_id: "person.kanak", label: "Kanak", type: "presence" },
   { entity_id: "media_player.kanak_xbox", label: "Xbox", type: "status" },
-  { entity_id: "device_tracker.pixel_9_pro", label: "Pixel Pro", type: "battery", battery_entity: "sensor.pixel_9_pro_battery_level" },
+  { entity_id: "device_tracker.pixel", label: "Pixel Pro", type: "battery", battery_entity: "sensor.pixel_battery_level" },
   { entity_id: "sensor.ipad_battery_level", label: "iPad", type: "battery" },
-  { entity_id: "sensor.galaxy_watch8_classic_krbx_battery_level", label: "Watch 8", type: "battery" },
+  { entity_id: "sensor.watch_battery_level", label: "Watch 8", type: "battery" },
   { entity_id: "binary_sensor.room_door_door", label: "Room Door", type: "door" },
-  { entity_id: "sensor.a1_03919d550407275_print_status", label: "Printo", type: "status" },
+  { entity_id: "sensor.printer_status", label: "Printo", type: "status" },
 ];
 
 function flattenEntities(data: EntitiesResponse | null): EntityInfo[] {

@@ -261,7 +261,7 @@ class StateCache:
                 _add("Weather", f"{state_val}, {temp}{unit}")
 
             elif domain == "light":
-                if not context_match and ("printo" in friendly_lower or "a1_03919d" in eid_lower):
+                if not context_match and ("printo" in friendly_lower or ".printer" in eid_lower):
                     continue
                 brightness = attrs.get("brightness")
                 pct = f" {round(brightness / 255 * 100)}%" if brightness else ""
@@ -302,7 +302,7 @@ class StateCache:
                 except (ValueError, TypeError):
                     val = state_val
                 if dev_class == "temperature" and (
-                    "printo" in friendly_lower or "a1_03919d" in eid_lower
+                    "printo" in friendly_lower or ".printer" in eid_lower
                 ):
                     if not context_match:
                         try:

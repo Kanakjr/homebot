@@ -35,18 +35,18 @@ When delivering bad news, be reassuring and solution-oriented.
 SYSTEM_PROMPT = """\
 {persona}
 You are also HomeBotAI, an intelligent smart-home assistant powered by Home Assistant.
-The home is in India (IST timezone). Residents: Kanak and Sarath.
+The home is in India (IST timezone). Resident: Kanak.
 
 Home Inventory:
-- light.bedside (bedroom light), light.a1_03919d550407275_chamber_light (printer chamber)
-- switch.monitor_plug (desk monitor), switch.workstation (PC)
-- fan.xiaomi_smart_air_purifier_4 (air purifier), fan.a1_03919d550407275_cooling_fan (printer fan)
-- sensor.sensor_temperature (room temp C), sensor.sensor_humidity (room humidity %)
-- sensor.xiaomi_smart_air_purifier_4_pm2_5 (PM2.5 ug/m3)
+- light.bedside (bedside lamp), light.table_lamp (bedroom table lamp, RGBW), light.printer_chamber_light (printer chamber)
+- switch.monitor_plug (desk plug), switch.workstation (PC)
+- fan.air_purifier (air purifier), fan.printer_fan (printer fan)
+- sensor.room_temperature (room temp C), sensor.room_humidity (room humidity %)
+- sensor.air_purifier_pm2_5 (PM2.5 ug/m3)
 - sensor.monitor_plug_current_consumption (desk watts), sensor.workstation_current_consumption (PC watts)
 - sensor.monitor_plug_today_s_consumption (desk kWh today), sensor.workstation_today_s_consumption (PC kWh today)
-- sensor.ipad_battery_level, sensor.pixel_9_pro_battery_level, sensor.galaxy_watch8_classic_krbx_battery_level
-- person.kanak, person.sarath
+- sensor.ipad_battery_level, sensor.pixel_battery_level, sensor.watch_battery_level
+- person.kanak
 - 2 Deco mesh nodes, ~21 device trackers
 
 Available tools: ha_call_service, ha_get_states, ha_search_entities
@@ -71,9 +71,8 @@ SKILL_PROMPTS = {
         "Skip sections with nothing to report. Aim for 4-6 lines max. "
         "If it was a quiet day, say so in one sentence and just show current state.\n\n"
         "Recent event log:\n"
-        "- [15:05] sensor.xiaomi_smart_air_purifier_4_filter_use: 5489 -> 5490 (state_change)\n"
-        "- [14:30] person.kanak: not_home -> home (state_change)\n"
-        "- [12:15] person.sarath: home -> not_home (state_change)"
+        "- [15:05] sensor.air_purifier_filter_use: 5489 -> 5490 (state_change)\n"
+        "- [14:30] person.kanak: not_home -> home (state_change)"
     ),
     "Morning Briefing": (
         "[SKILL EXECUTION: Morning Briefing]\n"
@@ -105,13 +104,12 @@ SKILL_PROMPTS = {
         "- light.bedside: on (brightness 128, warm white 2700K)\n"
         "- switch.monitor_plug: on (drawing 55W)\n"
         "- switch.workstation: off\n"
-        "- fan.xiaomi_smart_air_purifier_4: on (auto mode)\n"
+        "- fan.air_purifier: on (auto mode)\n"
         "- person.kanak: home\n"
-        "- person.sarath: not_home\n"
-        "- sensor.sensor_temperature: 29.0 C\n"
-        "- sensor.sensor_humidity: 49%\n"
-        "- sensor.xiaomi_smart_air_purifier_4_pm2_5: 4 ug/m3\n"
-        "- sensor.pixel_9_pro_battery_level: 45%\n"
+        "- sensor.room_temperature: 29.0 C\n"
+        "- sensor.room_humidity: 49%\n"
+        "- sensor.air_purifier_pm2_5: 4 ug/m3\n"
+        "- sensor.pixel_battery_level: 45%\n"
         "- sensor.ipad_battery_level: 55%"
     ),
     "Air Quality Alert": (
@@ -125,10 +123,10 @@ SKILL_PROMPTS = {
         "4. Recommend closing windows if outdoor AQI is high\n"
         "Keep the response short and actionable.\n\n"
         "Current readings:\n"
-        "- sensor.xiaomi_smart_air_purifier_4_pm2_5: 38 ug/m3\n"
-        "- sensor.sensor_temperature: 31.2 C\n"
-        "- sensor.sensor_humidity: 62%\n"
-        "- fan.xiaomi_smart_air_purifier_4: off"
+        "- sensor.air_purifier_pm2_5: 38 ug/m3\n"
+        "- sensor.room_temperature: 31.2 C\n"
+        "- sensor.room_humidity: 62%\n"
+        "- fan.air_purifier: off"
     ),
 }
 

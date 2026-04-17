@@ -8,34 +8,48 @@ tags: [homeassistant, devices, control]
 
 ## Known Devices
 
-### Lights (only 2 in the home)
+### Lights (2 in the home)
 | Entity ID | Friendly Name |
 |-----------|--------------|
-| `light.bedside` | Bedside lamp |
-| `light.a1_03919d550407275_chamber_light` | Printo 3D printer chamber light |
+| `light.bedside` | Bedside lamp (white only) |
+| `light.table_lamp` | Table lamp (WiZ RGBW + tunable white, bedroom) |
+
+### Alexa-proxy scripts (RGB LED strip)
+The Homemate RGB LED strip has no local API, so we control it by having HA speak
+commands at an Echo. These scripts are in the **`script`** domain, not `light`.
+
+| Script | Does | Example call |
+|--------|------|--------------|
+| `script.rgb_strip_on` | Tells Alexa: "turn on smart rgb led strip" | `ha_call_service(domain="script", service="rgb_strip_on")` |
+| `script.rgb_strip_off` | Tells Alexa: "turn off smart rgb led strip" | `ha_call_service(domain="script", service="rgb_strip_off")` |
+| `script.rgb_strip_brightness` | Needs `level` field (0-100) | `ha_call_service(domain="script", service="rgb_strip_brightness", data={"level": 50})` |
+| `script.rgb_strip_color` | Needs `color` field | `ha_call_service(domain="script", service="rgb_strip_color", data={"color": "red"})` |
+
+Known color names the strip responds to: red, green, blue, yellow, orange, purple,
+pink, warm white, cool white, daylight. Anything else Alexa may refuse.
+
+The trip produces a ~1-2 sec delay plus a verbal "okay" from `media_player.kanak_s_echo_dot`.
+When the user says "turn on the strip / led strip / rgb strip", call
+`script.rgb_strip_on`; do not search `light.*` for it — there's no light entity
+for this device.
 
 ### Smart Plugs (main controllable ones)
 | Entity ID | Friendly Name |
 |-----------|--------------|
-| `switch.monitor_plug` | Desk monitor plug |
+| `switch.monitor_plug` | Desk plug |
 | `switch.workstation` | Workstation plug |
 
 ### Fans (2 total)
 | Entity ID | Friendly Name |
 |-----------|--------------|
-| `fan.xiaomi_smart_air_purifier_4` | Xiaomi Air Purifier 4 |
-| `fan.a1_03919d550407275_cooling_fan` | Printo 3D printer cooling fan |
+| `fan.air_purifier` | Air purifier |
+| `fan.printer_fan` | 3D printer cooling fan |
 
 ### Cameras
 | Entity ID | Friendly Name |
 |-----------|--------------|
 | `camera.bedroom_camera_live_view` | Bedroom camera (often unavailable) |
-| `camera.a1_03919d550407275_camera` | Printo 3D printer camera |
-
-### Scenes
-- `scene.movie_time` -- dims lights, sets up media
-- `scene.movie_time_paused` -- paused movie scene
-- `scene.relax` -- relaxation lighting
+| `camera.printer` | 3D printer camera |
 
 There are also ~25 switch entities, but most are config toggles (auto-update, LED indicators, camera settings). The user-controllable switches are the two plugs listed above.
 
@@ -46,7 +60,6 @@ Use `ha_call_service(domain, service, entity_id, data)`:
 - **Lights**: `turn_on` / `turn_off`. Optional data: `{"brightness": 128}` (0-255), `{"color_temp_kelvin": 4000}`, `{"rgb_color": [255,0,0]}`
 - **Switches**: `turn_on` / `turn_off` / `toggle`
 - **Fans**: `turn_on` / `turn_off`. Optional: `{"preset_mode": "auto"}`
-- **Scenes**: `scene.turn_on` to activate
 
 ## Colloquial names and long-term memory
 
