@@ -8,3 +8,6 @@ uvicorn
 aiohttp
 python-dotenv
 yt-dlp
+beautifulsoup4
+trafilatura
+lxml
