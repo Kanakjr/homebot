@@ -389,46 +389,24 @@ async def execute_skill(skill_id: str):
                     results.append(f"{tool_name}: unknown tool")
             result_text = f"Skill '{skill['name']}' executed:\n" + "\n".join(results)
         elif skill["mode"] == "ai":
-            prompt = (
-                f"[SKILL EXECUTION: {skill['name']}]\n"
-                "[Context: You are executing a skill on demand. "
-                "Do NOT call render_ui (that is only for the web dashboard). "
-                "Use rich text formatting with emojis 🏠, clear section headers, "
-                "a warm and engaging tone. Make it easy to scan at a glance. "
-                "Avoid raw markdown like ** or ##, use emojis and line breaks instead.]\n\n"
-            )
-            prompt += skill.get("ai_prompt", "")
+            from skill_runner import run_skill as _run_skill
+
             event_log = await _app_ctx.procedural.get_event_log(hours=24)
+            log_text = ""
             if event_log:
                 log_text = "\n".join(
                     f"- [{e['ts']}] {e['entity_id']}: {e['old_state']} -> {e['new_state']} ({e['event_type']})"
                     for e in event_log[-50:]
                 )
-                prompt += f"\n\nRecent event log:\n{log_text}"
 
-            thread_id = f"api-skill-{skill_id}"
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{config.DEEP_AGENT_URL}/api/chat/stream",
-                    headers={"Content-Type": "application/json", "X-API-Key": config.DEEP_AGENT_API_KEY},
-                    json={"message": prompt, "thread_id": thread_id},
-                    timeout=aiohttp.ClientTimeout(total=120),
-                ) as resp:
-                    if resp.status != 200:
-                        body = await resp.text()
-                        raise HTTPException(status_code=502, detail=f"Deep agent error: {body[:200]}")
-                    raw = await resp.read()
-                    result_text = f"Skill '{skill['name']}' completed."
-                    for line in raw.decode("utf-8", errors="ignore").splitlines():
-                        line = line.strip()
-                        if not line.startswith("data:"):
-                            continue
-                        try:
-                            data = json.loads(line[5:].strip())
-                        except json.JSONDecodeError:
-                            continue
-                        if data.get("type") == "response":
-                            result_text = data.get("content", result_text)
+            state_summary = _app_ctx.state_cache.summarize(context_hint=skill.get("ai_prompt", "")) if _app_ctx.state_cache else ""
+
+            result_text = await _run_skill(
+                skill_name=skill["name"],
+                ai_prompt=skill.get("ai_prompt", ""),
+                state_summary=state_summary,
+                event_log_text=log_text,
+            )
         else:
             result_text = f"Unknown mode for skill '{skill['name']}'"
 

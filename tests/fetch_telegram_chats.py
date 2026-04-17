@@ -105,6 +105,24 @@ def _format_timestamp(ts_str: str) -> str:
         return ts_str[:19]
 
 
+# Any bracketed channel/context preamble followed by a blank line that main.py
+# or other entry points may prepend to the raw user message. We strip it for
+# display so the actual user intent is easy to scan.
+_CHANNEL_PREFIX_MARKERS = ("[Telegram]", "[Context:", "[Dashboard]", "[CLI]")
+
+
+def _strip_channel_prefix(user_msg: str) -> str:
+    if not user_msg:
+        return user_msg
+    if not any(marker in user_msg for marker in _CHANNEL_PREFIX_MARKERS):
+        return user_msg
+    # The preamble is followed by a blank line before the actual user text.
+    parts = user_msg.split("\n\n", 1)
+    if len(parts) == 2 and any(m in parts[0] for m in _CHANNEL_PREFIX_MARKERS):
+        return parts[1].lstrip()
+    return user_msg
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch Telegram chats from LangSmith")
     parser.add_argument("--limit", type=int, default=20, help="Number of traces to fetch")
@@ -169,11 +187,7 @@ def main():
                 continue
 
         user_msg = _extract_user_message(run)
-        # Strip the context prefix injected by main.py
-        if "[Context:" in user_msg:
-            parts = user_msg.split("]\n\n", 1)
-            if len(parts) == 2:
-                user_msg = parts[1]
+        user_msg = _strip_channel_prefix(user_msg)
 
         response = _extract_final_response(run)
         status = run.get("status", "?")

@@ -39,15 +39,27 @@ _skills_files: dict = {}
 async def _get_agent(model: str | None = None, context: str = "dashboard"):
     global _skills_files
     use_render_ui = context == "dashboard"
+    use_persona = context in ("telegram", "skill")
+    use_telegram = context == "telegram"
 
-    if context in ("telegram", "skill") and not model:
+    if use_persona and not model:
         model = config.TELEGRAM_MODEL
 
     model_key = model or config.MODEL
-    cache_key = f"{model_key}:{'ui' if use_render_ui else 'no-ui'}"
+    cache_key = (
+        f"{model_key}"
+        f":{'ui' if use_render_ui else 'no-ui'}"
+        f":{'persona' if use_persona else 'neutral'}"
+        f":{'tg' if use_telegram else 'any'}"
+    )
 
     if cache_key not in _agents:
-        agent, files = await build_agent(model=model_key, include_render_ui=use_render_ui)
+        agent, files = await build_agent(
+            model=model_key,
+            include_render_ui=use_render_ui,
+            include_persona=use_persona,
+            include_telegram=use_telegram,
+        )
         _agents[cache_key] = (agent, files)
         if not _skills_files:
             _skills_files = files
@@ -70,12 +82,18 @@ async def auth_middleware(request: Request, call_next):
 
 # -- Models -------------------------------------------------------------------
 
+class ImageInput(BaseModel):
+    mime: str = "image/jpeg"
+    b64: str
+
+
 class ChatRequest(BaseModel):
     message: str
     thread_id: str = "default"
     model: str | None = None
     tags: list[str] = []
     context: str = "dashboard"  # "dashboard", "telegram", or "skill"
+    images: list[ImageInput] = []
 
 
 # -- Endpoints ----------------------------------------------------------------
@@ -135,13 +153,35 @@ async def list_models():
     return {"models": models}
 
 
+@app.delete("/api/chat/threads/{thread_id}")
+async def clear_thread(thread_id: str):
+    """Remove all checkpoint state for a thread so the next turn starts fresh.
+
+    LangGraph's SqliteSaver stores checkpoints keyed by ``thread_id`` in the
+    ``checkpoints`` and ``writes`` tables. Deleting the rows is safe: the next
+    invocation will simply create a new snapshot.
+    """
+    import aiosqlite
+
+    try:
+        async with aiosqlite.connect(config.CHECKPOINT_DB) as conn:
+            await conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
+            await conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
+            await conn.commit()
+        return {"status": "ok", "thread_id": thread_id}
+    except Exception as e:
+        log.exception("Failed to clear thread %s", thread_id)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+
+
 @app.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest):
     """Send a message and receive SSE events matching the standard backend format.
 
     Event types: thinking, tool_call, tool_result, response, error, done.
     """
-    if req.model and req.model.startswith("ollama:"):
+    if req.model and req.model.startswith("ollama:") and req.context not in ("skill", "telegram"):
         if not ollama_id_eligible_for_deepagent(req.model):
             from fastapi.responses import JSONResponse
             return JSONResponse(
@@ -154,6 +194,7 @@ async def chat_stream(req: ChatRequest):
     async def event_generator():
         final_text = ""
         response_emitted = False
+        choices_emitted = False
         pending_tool_times: dict[str, float] = {}
         last_tool_results: list[str] = []
 
@@ -164,9 +205,11 @@ async def chat_stream(req: ChatRequest):
             if req.tags:
                 run_config["tags"] = req.tags
 
+            user_content = _build_user_content(req.message, req.images)
+
             async for chunk in agent.astream(
                 {
-                    "messages": [{"role": "user", "content": req.message}],
+                    "messages": [{"role": "user", "content": user_content}],
                     "files": skills_files,
                 },
                 config=run_config,
@@ -190,6 +233,20 @@ async def chat_stream(req: ChatRequest):
                                             "type": "ui_spec",
                                             "spec": spec,
                                         })
+                                    elif tc["name"] == "offer_choices":
+                                        choices_prompt = tc["args"].get("prompt", "")
+                                        opts = tc["args"].get("options") or []
+                                        yield _sse("choices", {
+                                            "type": "choices",
+                                            "prompt": choices_prompt,
+                                            "options": [str(o) for o in opts][:8],
+                                        })
+                                        # Mark as presented so trailing AI text
+                                        # (the model often restates the prompt)
+                                        # is dropped and the typing indicator
+                                        # stops cleanly.
+                                        response_emitted = True
+                                        choices_emitted = True
                                     else:
                                         yield _sse("tool_call", {
                                             "type": "tool_call",
@@ -201,7 +258,7 @@ async def chat_stream(req: ChatRequest):
                             text = _extract_text(msg.content)
                             if text:
                                 final_text = text
-                                if not msg.tool_calls:
+                                if not msg.tool_calls and not choices_emitted:
                                     response_emitted = True
                                     yield _sse("response", {
                                         "type": "response",
@@ -212,7 +269,7 @@ async def chat_stream(req: ChatRequest):
                             call_id = getattr(msg, "tool_call_id", "")
                             t_start = pending_tool_times.pop(call_id, None)
                             duration = int((time.monotonic() - t_start) * 1000) if t_start else 0
-                            if msg.name == "render_ui":
+                            if msg.name in ("render_ui", "offer_choices"):
                                 continue
                             content_str = (msg.content or "")[:2000]
                             last_tool_results.append(content_str)
@@ -230,13 +287,17 @@ async def chat_stream(req: ChatRequest):
                 "content": "Sorry, something went wrong processing your request.",
             })
 
-        if not response_emitted and final_text:
+        if not response_emitted and final_text and not choices_emitted:
             yield _sse("response", {"type": "response", "content": final_text})
-        elif not response_emitted and last_tool_results:
+        elif not response_emitted and last_tool_results and not choices_emitted:
             fallback = await _summarize_tool_results(
                 req.message, last_tool_results, model=req.model
             )
             yield _sse("response", {"type": "response", "content": fallback})
+
+        trace_url = _langsmith_trace_url()
+        if trace_url:
+            yield _sse("trace", {"type": "trace", "url": trace_url})
 
         yield "event: done\ndata: {}\n\n"
 
@@ -307,6 +368,61 @@ def _extract_messages(update) -> list:
     if isinstance(msgs, list):
         return msgs
     return []
+
+
+def _build_user_content(text: str, images: list) -> list | str:
+    """Build a LangChain message content block from text + optional images.
+
+    When there are no images, we return the plain string (cheapest path).
+    With images, each becomes a content block of type ``image_url`` with a
+    ``data:<mime>;base64,...`` URL, which LangChain translates to the
+    provider-native multimodal format for both Gemini and Ollama vision models.
+    """
+    if not images:
+        return text
+
+    blocks: list[dict] = [{"type": "text", "text": text}]
+    for img in images:
+        if hasattr(img, "mime"):
+            mime = img.mime
+            b64 = img.b64
+        else:
+            mime = img.get("mime", "image/jpeg")
+            b64 = img.get("b64", "")
+        if not b64:
+            continue
+        blocks.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
+        })
+    return blocks
+
+
+def _langsmith_trace_url() -> str | None:
+    """Return the URL of the current LangSmith run, if tracing is active.
+
+    LangSmith exposes the active run via its RunTree context. Returns None
+    silently if tracing is disabled or the SDK is not installed.
+    """
+    if str(config.LANGSMITH_TRACING).lower() not in ("true", "1", "yes"):
+        return None
+    try:
+        from langsmith.run_helpers import get_current_run_tree
+    except Exception:
+        return None
+    try:
+        rt = get_current_run_tree()
+        if rt is None:
+            return None
+        url = getattr(rt, "url", None)
+        if url:
+            return url
+        run_id = getattr(rt, "id", None) or getattr(rt, "trace_id", None)
+        if run_id:
+            return f"https://smith.langchain.com/public/{run_id}/r"
+    except Exception:
+        return None
+    return None
 
 
 def _sse(event_type: str, data: dict) -> str:

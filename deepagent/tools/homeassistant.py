@@ -52,12 +52,12 @@ async def ha_call_service(
             return json.dumps({"status": "error", "code": resp.status, "detail": text[:300]})
 
 
-async def ha_get_states(domain: str = "", limit: int = 50) -> str:
+async def ha_get_states(domain: str = "", limit: int = 150) -> str:
     """Get current states of Home Assistant entities.
 
     Args:
         domain: Filter by domain (e.g. "light", "sensor", "switch"). Empty = all domains.
-        limit: Max entities to return (default 50).
+        limit: Max entities to return (default 150). For targeted lookups prefer ha_search_entities.
     """
     url = f"{config.HA_URL}/api/states"
     async with aiohttp.ClientSession() as session:

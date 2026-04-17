@@ -1,12 +1,15 @@
 """Deep agent setup -- creates and configures the LangChain deep agent."""
 
 import logging
+import os
 
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
 from deepagents.backends.utils import create_file_data
+from langchain.agents.middleware.types import AgentMiddleware
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 import config
@@ -14,15 +17,56 @@ from tools import get_all_tools
 
 log = logging.getLogger("deepagent.agent")
 
+MAX_HUMAN_TURNS = int(os.getenv("MAX_HUMAN_TURNS", "5"))
+
+
+class MessageWindowMiddleware(AgentMiddleware):
+    """Trim conversation history to the last N human turns before each model call.
+
+    Keeps all messages (AI, tool) that belong to those turns so tool-call /
+    tool-result pairs stay intact.  Earlier messages are silently dropped,
+    keeping the context window small and costs predictable.
+    """
+
+    def __init__(self, max_human_turns: int = MAX_HUMAN_TURNS):
+        self._max_human_turns = max_human_turns
+
+    async def awrap_model_call(self, request, handler):
+        trimmed = _trim_to_last_n_human(request.messages, self._max_human_turns)
+        if len(trimmed) < len(request.messages):
+            log.debug(
+                "MessageWindow: trimmed %d -> %d messages (last %d human turns)",
+                len(request.messages), len(trimmed), self._max_human_turns,
+            )
+        return await handler(request.override(messages=trimmed))
+
+
+def _trim_to_last_n_human(messages: list, n: int) -> list:
+    """Return the tail of *messages* starting from the n-th-last HumanMessage."""
+    human_indices = [
+        i for i, m in enumerate(messages) if isinstance(m, HumanMessage)
+    ]
+    if len(human_indices) <= n:
+        return messages
+    cutoff = human_indices[-n]
+    return messages[cutoff:]
+
+
 _SYSTEM_PROMPT_BASE = """\
 You are HomeBotAI, an intelligent smart-home assistant powered by Home Assistant.
 The home is in India (IST timezone). Residents: Kanak and Sarath.
 
 ## Home Inventory
 
-Lights (2 total):
-- light.bedside -- Bedside lamp (colloquial: "bedroom light", "light")
+Lights (3 total):
+- light.bedside -- Bedside lamp, white only (colloquial: "bedside", "bedside light", "bedside lamp")
+- light.table_lamp -- Bedroom table lamp, WiZ RGBW + tunable white \
+(colloquial: "table lamp", "desk lamp", "reading lamp"). Supports colour, \
+brightness, temperature, and WiZ scenes via the standard light service.
 - light.a1_03919d550407275_chamber_light -- Printo 3D printer chamber
+
+Note: "bedroom light" is ambiguous -- both bedside and table lamp live in the \
+bedroom. Use `offer_choices` to let the user pick unless context narrows it.
 
 Plugs (2 main):
 - switch.monitor_plug -- Desk monitor plug
@@ -64,6 +108,7 @@ memory_search_notes, memory_read_note, memory_write_note
 Shell: execute (run commands when no dedicated tool exists)
 Link processing: process_and_save_link (for URLs -- Instagram, YouTube, articles, etc.)
 Generative UI: render_ui (generate interactive UI components in the chat)
+Choices: offer_choices (present 2-8 tap-able options instead of a text list; end your turn after calling it)
 
 You also have skills with domain-specific instructions -- read the matching \
 skill when the user's request fits a skill description.
@@ -85,7 +130,9 @@ Do NOT follow up with redundant ha_search_entities for the same domain.
 jellyfin_*, etc.) directly. Do NOT try to use HA tools for media management.
 4. ALWAYS provide a natural-language text response summarizing results. Never \
 return an empty response after tool calls.
-5. Use friendly names and natural descriptions.
+5. Use friendly, colloquial names in replies (e.g. "the purifier", "the room"). \
+Never quote raw entity_ids or vendor model names like "Xiaomi Smart Air Purifier 4" \
+back to the user.
 6. Device control by **colloquial name**: try the obvious entity first (e.g. \
 "bedroom light" -> light.bedside). If unsure, use `memory_search_notes` / \
 `memory_read_note` — users store phrase -> entity_id mappings in `homebot-brain`. \
@@ -96,6 +143,23 @@ for that unless they explicitly want automation **in Home Assistant**; rememberi
 is a memory task, not an automation task.
 8. When the user sends a URL (Instagram, YouTube, article, etc.), ALWAYS use \
 process_and_save_link to process it. Do NOT say you cannot access external links.
+9. **Ordinal / short replies resolve against your last message.** If you just \
+offered a numbered or bulleted list of items and the user replies with a bare \
+digit ("3"), letter ("a"), or ordinal ("the second one", "last one"), interpret \
+it as selecting that item and act on it — do not ask "what do you mean by 3?".
+10. **Synthesize redundant sensor data.** If two or more sensors report the same \
+quantity within a small delta (about 1°C or 5%RH or 20% on wattage), report a \
+single synthesized value ("around 28°C, humidity mid-50s"), not a list of raw \
+readings.
+11. **Environmental queries never fail for 'no access'.** Temperature, humidity, \
+PM2.5, and battery sensors are always reachable via the Home Assistant sensor \
+domain. If a targeted lookup returns nothing, fall back to \
+`ha_search_entities(query="temperature")` (or "humidity"/"battery"/"pm2") before \
+saying you cannot find the data.
+12. **Confirm actions in one line, without second-guessing.** After a successful \
+ha_call_service, state what changed in a single short sentence. Do not \
+immediately ask "did you mean another light?" unless the action clearly did \
+nothing useful.
 """
 
 _SYSTEM_PROMPT_RENDER_UI = """
@@ -131,10 +195,67 @@ Always include a text response alongside render_ui for context.
 """
 
 
-def get_system_prompt(*, include_render_ui: bool = True) -> str:
+_SYSTEM_PROMPT_TELEGRAM = """
+## Telegram channel rules
+
+You are replying over Telegram. Keep every response tight and scannable:
+
+- 2-6 lines, plain text. No markdown headers, no bullet symbols like `*` or `#`, \
+  no HTML. Short sentences are fine; use line breaks for rhythm.
+- At most ONE emoji per message, and only when it adds information (warnings, \
+  celebrations). Never decorate replies with emojis.
+- Answer first, flourish last. For status/control queries (temperature, lights, \
+  power, recaps) give the answer in the first sentence with no preamble.
+- Do NOT tack on "Let me know if you need anything else!", "Enjoy!", \
+  "Pretty cool, right?", or similar filler tails. The conversation stays open \
+  by default.
+- Confirm an action in a single sentence ("Bedside lamp is on.") and stop — \
+  don't immediately second-guess yourself with "did you mean another light?".
+- For URLs, always call process_and_save_link.
+- For device control, try the obvious entity first; use stored phrase -> \
+  entity_id mappings from `homebot-brain` before saying "not found".
+- Do NOT emit render_ui on Telegram (there is no UI surface).
+
+## Offering choices
+
+When you need the user to pick from a list, prefer the `offer_choices` tool over \
+a numbered text list — it renders as tap-able buttons in Telegram. Reserve plain \
+text lists for cases where the user is likely scanning, not selecting.
+"""
+
+
+
+def _load_persona() -> str | None:
+    """Read persona.md from the data directory. Returns None if missing."""
+    from pathlib import Path
+
+    persona_path = config.DATA_DIR / "persona.md"
+    if persona_path.is_file():
+        text = persona_path.read_text().strip()
+        if text:
+            log.info("Loaded persona from %s", persona_path)
+            return text
+    return None
+
+
+def get_system_prompt(
+    *,
+    include_render_ui: bool = True,
+    include_persona: bool = False,
+    include_telegram: bool = False,
+) -> str:
     prompt = _SYSTEM_PROMPT_BASE
+
+    if include_persona:
+        persona = _load_persona()
+        if persona:
+            identity_end = prompt.index("\n\n## Home Inventory")
+            prompt = persona + "\n\n" + prompt[identity_end + 2:]
+
     if include_render_ui:
         prompt += _SYSTEM_PROMPT_RENDER_UI
+    if include_telegram:
+        prompt += _SYSTEM_PROMPT_TELEGRAM
     return prompt
 
 
@@ -171,9 +292,24 @@ def _load_memory_files() -> dict:
 
 
 def _resolve_model(model_spec: str) -> str | BaseChatModel:
-    """Turn provider:model into a chat model; Ollama needs base_url (not localhost in Docker)."""
+    """Turn provider:model into a chat model.
+
+    - Ollama needs an explicit base_url (not localhost inside Docker).
+    - Gemini 2.5 models default to "thinking mode" which consumes the entire
+      output budget on chain-of-thought before producing tool calls or text,
+      leading to empty streamed responses. We disable it with
+      ``thinking_budget=0`` unless the caller overrides via env.
+    """
     if model_spec.startswith("ollama:"):
         return init_chat_model(model_spec, base_url=config.OLLAMA_URL)
+
+    if model_spec.startswith("google_genai:") or model_spec.startswith("gemini:"):
+        try:
+            budget = int(os.getenv("GEMINI_THINKING_BUDGET", "0"))
+        except ValueError:
+            budget = 0
+        return init_chat_model(model_spec, thinking_budget=budget)
+
     return model_spec
 
 
@@ -189,17 +325,32 @@ async def _create_checkpointer() -> AsyncSqliteSaver:
     return saver
 
 
-async def build_agent(model: str | None = None, *, include_render_ui: bool = True):
+async def build_agent(
+    model: str | None = None,
+    *,
+    include_render_ui: bool = True,
+    include_persona: bool = False,
+    include_telegram: bool = False,
+):
     """Build and return the deep agent graph.
 
     *model* overrides ``config.MODEL`` when provided. Accepts the
     ``provider:model`` format, e.g. ``ollama:qwen3.5:9b``.
     *include_render_ui* controls whether the render_ui instructions are
     included in the system prompt (False for Telegram / skill contexts).
+    *include_persona* loads persona.md and replaces the default identity.
+    *include_telegram* appends the Telegram channel rules block.
     """
     effective_model = model or config.MODEL
-    prompt = get_system_prompt(include_render_ui=include_render_ui)
-    log.info("Building deep agent with model=%s render_ui=%s", effective_model, include_render_ui)
+    prompt = get_system_prompt(
+        include_render_ui=include_render_ui,
+        include_persona=include_persona,
+        include_telegram=include_telegram,
+    )
+    log.info(
+        "Building deep agent with model=%s render_ui=%s persona=%s telegram=%s",
+        effective_model, include_render_ui, include_persona, include_telegram,
+    )
 
     all_tools = get_all_tools()
     skills_files = _load_skills_files()
@@ -220,6 +371,7 @@ async def build_agent(model: str | None = None, *, include_render_ui: bool = Tru
         memory=memory_paths,
         checkpointer=checkpointer,
         backend=LocalShellBackend(root_dir=str(config.DATA_DIR)),
+        middleware=[MessageWindowMiddleware()],
     )
 
     log.info(

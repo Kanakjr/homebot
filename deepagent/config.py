@@ -36,6 +36,12 @@ PROWLARR_API_KEY = os.getenv("PROWLARR_API_KEY", "")
 JELLYFIN_URL = os.getenv("JELLYFIN_URL", "http://localhost:8096")
 JELLYFIN_API_KEY = os.getenv("JELLYFIN_API_KEY", "")
 
+# --- TP-Link Deco mesh router ---
+DECO_URL = os.getenv("DECO_URL", "")
+DECO_USERNAME = os.getenv("DECO_USERNAME", "admin")
+DECO_PASSWORD = os.getenv("DECO_PASSWORD", "")
+DECO_VERIFY_SSL = os.getenv("DECO_VERIFY_SSL", "false").lower() in {"1", "true", "yes"}
+
 # --- Server ---
 PORT = int(os.getenv("PORT", "8322"))
 API_KEY = os.getenv("API_KEY", "")

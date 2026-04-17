@@ -426,6 +426,7 @@ class ProceduralMemory:
             "description": "Daily summary of home activity, energy, air quality, network, and notable events (10 PM)",
             "trigger": {"type": "schedule", "cron": "0 22 * * *"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "Generate a concise daily digest for Kanak. Include:\n"
                 "1. Energy/power highlights (current draw, total kWh today)\n"
@@ -443,6 +444,7 @@ class ProceduralMemory:
             "description": "Weekly energy trends, costs, and optimization suggestions (Sunday 8 PM)",
             "trigger": {"type": "schedule", "cron": "0 20 * * 0"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "Generate a weekly energy and usage report for Kanak. Include:\n"
                 "1. Power consumption patterns from the event log (peak hours, baseline)\n"
@@ -461,6 +463,7 @@ class ProceduralMemory:
             "description": "Daily morning summary with weather, overnight events, and device status (7 AM)",
             "trigger": {"type": "schedule", "cron": "0 7 * * *"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "Generate a concise morning briefing for Kanak. Include:\n"
                 "1. Current weather conditions\n"
@@ -478,6 +481,7 @@ class ProceduralMemory:
             "description": "Check home state before bed -- lights, doors, devices still on",
             "trigger": {"type": "manual"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "Kanak is going to bed. Check the home state and provide a goodnight summary:\n"
                 "1. List any lights, switches, or fans still on (suggest turning them off)\n"
@@ -495,6 +499,7 @@ class ProceduralMemory:
             "description": "Alert when air quality degrades -- AQI, PM2.5 levels, purifier suggestion",
             "trigger": {"type": "manual"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "Air quality may have changed. Check all air quality sensors and report:\n"
                 "1. Current PM2.5, PM10, AQI, and VOC levels from all sensors\n"
@@ -511,6 +516,7 @@ class ProceduralMemory:
             "description": "Weekly summary of new content in Jellyfin and upcoming shows from Sonarr (Friday 7 PM)",
             "trigger": {"type": "schedule", "cron": "0 19 * * 5"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "Generate a weekly media digest for Kanak. Include:\n"
                 "1. Check Jellyfin for recently added movies and shows (use jellyfin_get_latest)\n"
@@ -527,6 +533,7 @@ class ProceduralMemory:
             "description": "Weekly check of Deco mesh nodes, connectivity, and bandwidth (Sunday noon)",
             "trigger": {"type": "schedule", "cron": "0 12 * * 0"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "Run a weekly network health check. "
                 "Check Deco mesh node status and flag any important offline devices. "
@@ -541,6 +548,7 @@ class ProceduralMemory:
             "description": "Turn on hallway lights when a household member arrives home via Deco network detection",
             "trigger": {"type": "state_change", "entity_id": "device_tracker.pixel9pro", "to": "home", "from": "not_home"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "A household member just arrived home (their phone connected to the Deco mesh). "
                 "Check the current time -- if it's after 6 PM or before 6 AM (dark hours), "
@@ -556,6 +564,7 @@ class ProceduralMemory:
             "description": "Check and report devices left on when the last tracked person leaves home",
             "trigger": {"type": "state_change", "entity_id": "device_tracker.pixel9pro", "to": "not_home", "from": "home"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "The last household member just left home (phone disconnected from Deco mesh). "
                 "Check for any lights, switches, or fans that are still on. "
@@ -572,6 +581,7 @@ class ProceduralMemory:
             "description": "Automatic bedtime check when phone stops network activity late at night",
             "trigger": {"type": "manual"},
             "mode": "ai",
+            "model": "ollama:sorc/qwen3.5-claude-4.6-opus-q4:9b",
             "ai_prompt": (
                 "It's late and the household seems to be settling down for the night. "
                 "Run a quick bedtime check:\n"
@@ -599,6 +609,7 @@ class ProceduralMemory:
                     mode=skill_def["mode"],
                     ai_prompt=skill_def["ai_prompt"],
                     notify=skill_def["notify"],
+                    model=skill_def.get("model"),
                 )
                 log.info("Created default skill: %s", skill_def["name"])
             else:
@@ -609,6 +620,8 @@ class ProceduralMemory:
                     updates["description"] = skill_def["description"]
                 if existing["trigger"] != skill_def["trigger"]:
                     updates["trigger"] = skill_def["trigger"]
+                if skill_def.get("model") and existing.get("model") != skill_def["model"]:
+                    updates["model"] = skill_def["model"]
                 if updates:
                     await self.update_skill(skill_def["id"], updates)
                     log.info("Updated default skill: %s", skill_def["name"])

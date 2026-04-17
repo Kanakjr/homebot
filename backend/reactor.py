@@ -37,7 +37,7 @@ NOTABLE_DOMAINS = {
 # Suffixes for sensors that change every few seconds and bloat the log
 _NOISY_SENSOR_SUFFIXES = (
     "_voltage", "_current", "_signal_level", "_wi_fi_signal",
-    "_motor_speed",
+    "_motor_speed", "_current_consumption", "_consumption_cost",
 )
 # Exact entity_id matches for high-frequency bandwidth sensors
 _NOISY_SENSOR_IDS = frozenset({
@@ -320,8 +320,8 @@ class Reactor:
         return f"Skill '{skill['name']}' executed:\n" + "\n".join(results)
 
     async def _execute_ai(self, skill: dict, context: dict | None = None, *, scheduled: bool = False) -> str:
-        """Execute an AI skill by sending a prompt to the deepagent."""
-        ai_prompt = skill.get("ai_prompt", "")
+        """Execute an AI skill by calling Ollama directly with live state."""
+        from skill_runner import run_skill as _run_skill
 
         event_log = await self.procedural.get_event_log(hours=24)
         log_text = ""
@@ -331,59 +331,22 @@ class Reactor:
                 for e in event_log[-50:]
             )
 
-        prompt = (
-            f"[SKILL EXECUTION: {skill['name']}]\n"
-            "[Context: You are executing an automated skill. The result will be sent as a Telegram notification. "
-            "Do NOT call render_ui — that tool is only for the web dashboard UI. "
-            "Format your response with emojis, clear section headers, and a warm engaging tone. "
-            "Avoid raw markdown syntax like ** or ##; use emojis and newlines instead. "
-            "Be concise and easy to scan at a glance.]\n\n"
-        )
-        prompt += ai_prompt
+        ai_prompt = skill.get("ai_prompt", "")
         if context:
-            prompt += f"\n\nTrigger context: {json.dumps(context, default=str)}"
-        if log_text:
-            prompt += f"\n\nRecent event log (last 24h):\n{log_text}"
+            ai_prompt += f"\n\nTrigger context: {json.dumps(context, default=str)}"
 
-        # Use an isolated thread per skill so it has its own conversation context
-        thread_id = f"reactor-skill-{skill['id']}"
+        state_summary = self.state.summarize(context_hint=ai_prompt) if self.state else ""
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{config.DEEP_AGENT_URL}/api/chat/stream",
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-API-Key": config.DEEP_AGENT_API_KEY,
-                    },
-                    json={"message": prompt, "thread_id": thread_id, "context": "skill"},
-                    timeout=aiohttp.ClientTimeout(total=120),
-                ) as resp:
-                    if resp.status != 200:
-                        body = await resp.text()
-                        log.error("DeepAgent returned %s for skill '%s': %s", resp.status, skill['name'], body[:300])
-                        return f"Skill '{skill['name']}' failed: deep agent unavailable."
-
-                    raw = await resp.read()
-                    body = raw.decode("utf-8", errors="ignore")
-                    result_text = f"Skill '{skill['name']}' completed."
-                    for line in body.splitlines():
-                        line = line.strip()
-                        if not line.startswith("data:"):
-                            continue
-                        try:
-                            data = json.loads(line[5:].strip())
-                        except json.JSONDecodeError:
-                            continue
-                        if data.get("type") == "response":
-                            result_text = data.get("content", result_text)
-                        elif data.get("type") == "error":
-                            result_text = data.get("content", result_text)
-                    return result_text
-
-        except aiohttp.ClientConnectionError:
-            log.error("Could not connect to Deep Agent for skill '%s'", skill['name'])
-            return f"Skill '{skill['name']}' failed: deep agent is offline."
+            return await _run_skill(
+                skill_name=skill["name"],
+                ai_prompt=ai_prompt,
+                state_summary=state_summary,
+                event_log_text=log_text,
+            )
+        except Exception:
+            log.exception("Ollama skill execution failed for '%s'", skill["name"])
+            return f"Skill '{skill['name']}' failed: Ollama error."
         except Exception as e:
             log.exception("Unexpected error executing AI skill '%s' via deepagent", skill['name'])
             return f"Skill '{skill['name']}' failed: {e}"

@@ -2,7 +2,7 @@
 
 
 def get_all_tools() -> list:
-    """Return all tools: HA + media services + generative UI."""
+    """Return all tools: HA + media services + generative UI + choices."""
     from .homeassistant import get_ha_tools
     from .sonarr import get_sonarr_tools
     from .radarr import get_radarr_tools
@@ -14,6 +14,8 @@ def get_all_tools() -> list:
     from .obsidian import get_obsidian_tools
     from .link_processor import get_link_processor_tools
     from .memory import get_memory_tools
+    from .choices import get_choices_tools
+    from .deco import get_deco_tools
 
     return (
         get_ha_tools()
@@ -27,4 +29,6 @@ def get_all_tools() -> list:
         + get_obsidian_tools()
         + get_link_processor_tools()
         + get_memory_tools()
+        + get_choices_tools()
+        + get_deco_tools()
     )

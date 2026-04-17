@@ -2,6 +2,7 @@ deepagents
 langchain-google-genai
 langchain-ollama
 langgraph-checkpoint-sqlite
+aiosqlite
 fastapi
 uvicorn
 aiohttp

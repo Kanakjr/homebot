@@ -20,12 +20,63 @@ log = logging.getLogger("deepagent.tools.link_processor")
 
 MEDIA_DOMAINS = {"youtube.com", "youtu.be", "instagram.com", "twitter.com", "x.com", "tiktok.com"}
 
+# Query strings we strip when checking for duplicates -- these change per share
+# but do not change the underlying content.
+_TRACKING_PARAMS = {
+    "igsh", "igshid", "utm_source", "utm_medium", "utm_campaign",
+    "utm_term", "utm_content", "fbclid", "gclid", "si", "feature",
+    "xmt", "slof", "s", "t",
+}
+
 
 def _get_vault_path() -> Path:
     vault = Path(config.OBSIDIAN_VAULT_PATH)
     if not vault.exists():
         vault.mkdir(parents=True, exist_ok=True)
     return vault
+
+
+def _canonical_url(url: str) -> str:
+    """Strip tracking params and trailing slash so dup-checks match shares of the same post."""
+    from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
+
+    try:
+        parsed = urlparse(url.strip())
+        kept = [
+            (k, v) for (k, v) in parse_qsl(parsed.query, keep_blank_values=False)
+            if k not in _TRACKING_PARAMS
+        ]
+        path = parsed.path.rstrip("/")
+        cleaned = parsed._replace(query=urlencode(kept), fragment="", path=path)
+        return urlunparse(cleaned).lower()
+    except Exception:
+        return url.strip().rstrip("/").lower()
+
+
+def _find_existing_link(url: str, vault: Path) -> Path | None:
+    """Return the first Bookmarks note whose frontmatter URL matches, else None.
+
+    We only scan the Bookmarks subtree (where saved links live). Matching is
+    done on the canonicalized URL so that the same Instagram reel shared with
+    different ``igsh`` tokens deduplicates correctly.
+    """
+    target = _canonical_url(url)
+    bookmarks = vault / "Bookmarks"
+    if not bookmarks.exists():
+        return None
+
+    for md in bookmarks.rglob("*.md"):
+        try:
+            with md.open("r", encoding="utf-8") as f:
+                head = f.read(600)
+        except (UnicodeDecodeError, OSError):
+            continue
+        match = re.search(r"^url:\s*(.+)$", head, re.MULTILINE)
+        if not match:
+            continue
+        if _canonical_url(match.group(1)) == target:
+            return md
+    return None
 
 
 def _clean_filename(text: str, max_len: int = 50) -> str:
@@ -351,6 +402,16 @@ async def process_and_save_link(url: str, category: str = "", tags: str = "") ->
     """
     user_tags = [t.strip() for t in tags.split(",")] if tags else []
     vault = _get_vault_path()
+
+    existing = _find_existing_link(url, vault)
+    if existing is not None:
+        rel = existing.relative_to(vault)
+        return json.dumps({
+            "status": "duplicate",
+            "saved_to": str(rel),
+            "title": existing.stem,
+            "note": "already saved previously; not re-processing",
+        })
 
     title = "Untitled Link"
     metadata_section = ""
