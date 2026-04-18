@@ -338,13 +338,44 @@ ollama run homebot-gemma4-e2b "turn off the air purifier"
 Flip the deepagent over by setting in `Apps/homebot/deepagent/.env`:
 
 ```
-MODEL=ollama:homebot-qwen3_5-4b       # production
-# MODEL=ollama:homebot-qwen3_5-2b     # fast lane
+# Dashboard / CLI (neutral system prompt, no persona block):
+MODEL=ollama:homebot-qwen3_5-2b       # production (100% tool-calling pass,
+                                      # 3.2s avg; 32% faster than qwen3.5:2b
+                                      # base at the same 75-81% deep-agent
+                                      # pass rate -- see tests/llm/results/)
+# MODEL=ollama:homebot-qwen3_5-4b     # raw-template only; bind_tools() NOT
+                                      # supported until Ollama's qwen3.5
+                                      # PARSER gets patched upstream (our 4B
+                                      # fine-tune's thinking+tool_call stream
+                                      # reliably EOFs the 0.21 parser). Still
+                                      # usable via direct /api/generate with
+                                      # manual <tool_call> JSON parsing.
 # MODEL=ollama:homebot-gemma4-e2b     # A/B candidate
+
+# Telegram / skill contexts (persona + telegram rules + 62 tools):
+TELEGRAM_MODEL=google_genai:gemini-2.5-flash
+# TELEGRAM_MODEL=ollama:homebot-qwen3_5-2b  # NOT production-ready. Even the
+#                                           # 2B passes isolated tool-calling
+#                                           # but hits Ollama 0.21's qwen3.5
+#                                           # PARSER EOF bug under the bigger
+#                                           # persona+telegram+62-tool prompt.
+#                                           # Smoke test reproducibly errors
+#                                           # with `ResponseError: EOF` from
+#                                           # ollama_client.chat. Revisit once
+#                                           # upstream PRs #14906 / #14915 ship.
 ```
 
 `deepagent/agent.py::_resolve_model` already handles the `ollama:` prefix, so
-you can A/B builds just by editing this one line and restarting the deepagent.
+you can A/B builds just by editing these lines and recreating the deepagent
+container. The two model slots exist because `deepagent/api.py::_get_agent`
+routes `context="telegram"` (and `"skill"`) to `TELEGRAM_MODEL` for the
+persona-enabled agent, and everything else (`context="dashboard"`) to `MODEL`.
+`/api/health` only reports `MODEL` -- to verify which model is actually
+serving Telegram, grep LangSmith traces for `ls_model_name` or run:
+
+```bash
+docker exec homebot-deepagent env | grep -E "^(MODEL|TELEGRAM_MODEL)="
+```
 
 ## Data Quality Gates
 

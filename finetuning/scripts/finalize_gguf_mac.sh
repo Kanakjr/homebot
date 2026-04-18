@@ -148,12 +148,62 @@ log "Quantizing $FP16_GGUF -> $QUANT_GGUF ($QUANT)"
 llama-quantize "$FP16_GGUF" "$QUANT_GGUF" "$QUANT"
 
 MODELFILE_PATH="${BUILD_TAG}.Modelfile"
-log "Writing $MODELFILE_PATH"
-# Double-quoted heredoc so we can interpolate ${QUANT_GGUF}; Ollama's Go
-# template variables (${..} and {{..}}) are escaped with a leading backslash
-# where they would otherwise be interpreted by bash.
+log "Writing $MODELFILE_PATH (size-aware: 2B uses qwen3.5 parser, 4B+ uses hand-rolled template)"
+# Size-aware Qwen3.5 modelfile:
+#   2B -> Ollama's built-in qwen3.5 RENDERER + PARSER. This flips the
+#         supports_tools capability on so langchain_ollama bind_tools()
+#         works and <tool_call> JSON gets parsed into structured tool_calls.
+#   4B -> Qwen3.5-4B defaults to thinking-on, and our fine-tune inherits it.
+#         Ollama 0.21's qwen3.5 PARSER reliably errors with "EOF" on the
+#         resulting thinking+tool_call stream from our 4B fine-tune (the
+#         stock qwen3.5:4b with the same parser works, so the fine-tune's
+#         token distribution trips a parser edge case). The hand-rolled
+#         ChatML TEMPLATE below works for direct /api/generate and /api/chat
+#         (tool calls come through as raw <tool_call> JSON in .content);
+#         bind_tools() will report "Tool calling not supported" because the
+#         model doesn't advertise the capability without a PARSER. Revisit
+#         when Ollama's qwen3.5 parser gets patched upstream.
+if [ "$SIZE_LOW" = "2b" ]; then
 cat > "$MODELFILE_PATH" <<EOF
 FROM ./${QUANT_GGUF}
+
+TEMPLATE {{ .Prompt }}
+RENDERER qwen3.5
+PARSER qwen3.5
+
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8
+PARAMETER top_k 20
+PARAMETER repeat_penalty 1.05
+PARAMETER num_ctx 8192
+
+SYSTEM """You are HomeBotAI, an intelligent smart-home assistant powered by Home Assistant.
+The home is in India (IST timezone). Resident: Kanak.
+
+You have access to tools for:
+- Home Assistant device control (ha_call_service, ha_get_states, ha_search_entities)
+- Media management (sonarr_*, radarr_*, jellyfin_*, jellyseerr_*, prowlarr_*, transmission_*)
+- Network admin (deco_list_clients, deco_list_mesh_nodes, deco_reboot_nodes, deco_reservation_help)
+- Obsidian vault + persistent memory (obsidian_*, memory_*)
+- Link processing (process_and_save_link)
+- Interactive choices (offer_choices -- tap-able buttons; end your turn after calling it)
+- Shell execution (execute)
+
+Rules:
+1. Be efficient with tool calls -- 1-3 targeted calls over exhaustive searching.
+2. Always provide a short natural-language summary after tool calls.
+3. Use colloquial names in replies (e.g. "the purifier"), never raw entity_ids.
+4. For short ordinal replies like "3" or "the second one", resolve against your
+   previous message.
+5. Confirm actions in one line and stop -- no filler tails, no second-guessing.
+6. Synthesize redundant sensor readings (within ~1C / 5%RH) into one value instead
+   of dumping raw lists.
+"""
+EOF
+else
+# 4B+ path: hand-rolled Qwen3 ChatML template (see note at top of block).
+cat > "$MODELFILE_PATH" <<'EOF_TEMPLATE'
+FROM ./__QUANT_GGUF__
 
 PARAMETER temperature 0.7
 PARAMETER top_p 0.8
@@ -165,7 +215,7 @@ PARAMETER stop "<|im_start|>"
 PARAMETER stop "<|endoftext|>"
 
 TEMPLATE """{{- if .Messages }}
-{{- range \$i, \$_ := .Messages }}
+{{- range $i, $_ := .Messages }}
 {{- if eq .Role "system" }}<|im_start|>system
 {{ .Content }}<|im_end|>
 {{ else if eq .Role "user" }}<|im_start|>user
@@ -209,7 +259,10 @@ Rules:
 6. Synthesize redundant sensor readings (within ~1C / 5%RH) into one value instead
    of dumping raw lists.
 """
-EOF
+EOF_TEMPLATE
+# quoted heredoc disables $VAR expansion; substitute filename now.
+sed -i.bak "s|__QUANT_GGUF__|${QUANT_GGUF}|" "$MODELFILE_PATH" && rm -f "${MODELFILE_PATH}.bak"
+fi
 
 if command -v ollama >/dev/null 2>&1; then
   log "Registering Ollama model: $BUILD_TAG"

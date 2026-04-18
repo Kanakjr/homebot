@@ -397,10 +397,11 @@ The `FROM` line references the `PRIMARY_QUANT` GGUF. At import time on your
 Mac, `ollama create` reads the GGUF bytes into its own blob store, so the
 relative path only has to resolve during the one-shot import.
 
-For Qwen we ship a full Go template so Ollama routes `role=tool` /
-`tool_calls` correctly through the ChatML layer. For Gemma we rely on
-Ollama's built-in auto-detection from the GGUF metadata (the tokenizer's
-Jinja template is serialised inside the GGUF)."""
+For Qwen we use Ollama's built-in `qwen3.5` renderer + parser (available
+since Ollama 0.11) so the model's `tools` capability flag is set and
+langchain_ollama / OpenAI-style callers see `supports_tools: true`.
+For Gemma we rely on Ollama's built-in auto-detection from the GGUF
+metadata (the tokenizer's Jinja template is serialised inside the GGUF)."""
 )
 
 
@@ -435,47 +436,85 @@ Rules:
    of dumping raw lists.
 """
 
-QWEN_GO_TEMPLATE = """{{- if .Messages }}
-{{- range $i, $_ := .Messages }}
-{{- if eq .Role "system" }}<|im_start|>system
-{{ .Content }}<|im_end|>
-{{ else if eq .Role "user" }}<|im_start|>user
-{{ .Content }}<|im_end|>
-{{ else if eq .Role "assistant" }}<|im_start|>assistant
-{{- if .Content }}
-{{ .Content }}
-{{- end }}
-{{- if .ToolCalls }}
-<tool_call>
-{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
-{{ end }}</tool_call>
-{{- end }}<|im_end|>
-{{ else if eq .Role "tool" }}<|im_start|>user
-<tool_response>
-{{ .Content }}
-</tool_response><|im_end|>
-{{ end }}
-{{- end }}<|im_start|>assistant
-{{ end }}"""
-
 if CHAT_FAMILY == "qwen":
-    modelfile = (
-        f"FROM ./{PRIMARY_GGUF_NAME}\n"
-        "\n"
-        "# Non-thinking Qwen3.5 sampling (matches Unsloth + Qwen docs).\n"
-        "PARAMETER temperature 0.7\n"
-        "PARAMETER top_p 0.8\n"
-        "PARAMETER top_k 20\n"
-        "PARAMETER repeat_penalty 1.05\n"
-        "PARAMETER num_ctx 8192\n"
-        'PARAMETER stop "<|im_end|>"\n'
-        'PARAMETER stop "<|im_start|>"\n'
-        'PARAMETER stop "<|endoftext|>"\n'
-        "\n"
-        f'TEMPLATE """{QWEN_GO_TEMPLATE}"""\n'
-        "\n"
-        f'SYSTEM """{SYSTEM_PROMPT}"""\n'
-    )
+    # Size-aware Qwen3.5 modelfile:
+    #   <=3B: Ollama's built-in qwen3.5 renderer/parser works cleanly. This
+    #         sets supports_tools: true so langchain_ollama / OpenAI-style
+    #         callers get structured tool_calls.
+    #   >=4B: Qwen3.5-4B defaults to thinking-on, and our fine-tune inherits
+    #         that. Ollama 0.21's qwen3.5 PARSER consistently errors with
+    #         `EOF` when parsing the thinking+tool_call stream from our 4B
+    #         fine-tune (stock qwen3.5:4b with the same parser works, so
+    #         something in the fine-tune's token distribution trips it). We
+    #         therefore fall back to the hand-rolled ChatML TEMPLATE for 4B+,
+    #         which means direct /api/generate + /api/chat work but
+    #         `bind_tools()` is not supported (capability flag off); callers
+    #         need to parse <tool_call> JSON manually. Revisit when Ollama's
+    #         qwen3.5 parser gets fixed upstream.
+    is_small_qwen = MODEL_SIZE.upper() in ("2B",)  # extend if future 1.5B/3B land
+    if is_small_qwen:
+        modelfile = (
+            f"FROM ./{PRIMARY_GGUF_NAME}\n"
+            "\n"
+            "TEMPLATE {{ .Prompt }}\n"
+            "RENDERER qwen3.5\n"
+            "PARSER qwen3.5\n"
+            "\n"
+            "# Non-thinking Qwen3.5 sampling (matches Unsloth + Qwen docs).\n"
+            "PARAMETER temperature 0.7\n"
+            "PARAMETER top_p 0.8\n"
+            "PARAMETER top_k 20\n"
+            "PARAMETER repeat_penalty 1.05\n"
+            "PARAMETER num_ctx 8192\n"
+            "\n"
+            f'SYSTEM """{SYSTEM_PROMPT}"""\n'
+        )
+    else:
+        qwen_template = (
+            'TEMPLATE """{{- if .Messages }}\n'
+            '{{- range $i, $_ := .Messages }}\n'
+            '{{- if eq .Role "system" }}<|im_start|>system\n'
+            '{{ .Content }}<|im_end|>\n'
+            '{{ else if eq .Role "user" }}<|im_start|>user\n'
+            '{{ .Content }}<|im_end|>\n'
+            '{{ else if eq .Role "assistant" }}<|im_start|>assistant\n'
+            '{{- if .Content }}\n'
+            '{{ .Content }}\n'
+            '{{- end }}\n'
+            '{{- if .ToolCalls }}\n'
+            '<tool_call>\n'
+            '{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}\n'
+            '{{ end }}</tool_call>\n'
+            '{{- end }}<|im_end|>\n'
+            '{{ else if eq .Role "tool" }}<|im_start|>user\n'
+            '<tool_response>\n'
+            '{{ .Content }}\n'
+            '</tool_response><|im_end|>\n'
+            '{{ end }}\n'
+            '{{- end }}<|im_start|>assistant\n'
+            '{{ end }}"""\n'
+        )
+        modelfile = (
+            f"FROM ./{PRIMARY_GGUF_NAME}\n"
+            "\n"
+            "# Hand-rolled Qwen3 ChatML template: the 4B+ fine-tune defaults to\n"
+            "# thinking-on and Ollama 0.21's built-in qwen3.5 PARSER EOFs on\n"
+            "# the resulting thinking+tool_call stream. This template lets the\n"
+            "# model be used directly via /api/generate and /api/chat; callers\n"
+            "# parse <tool_call> JSON manually (bind_tools is NOT supported).\n"
+            "PARAMETER temperature 0.7\n"
+            "PARAMETER top_p 0.8\n"
+            "PARAMETER top_k 20\n"
+            "PARAMETER repeat_penalty 1.05\n"
+            "PARAMETER num_ctx 8192\n"
+            'PARAMETER stop "<|im_end|>"\n'
+            'PARAMETER stop "<|im_start|>"\n'
+            'PARAMETER stop "<|endoftext|>"\n'
+            "\n"
+            + qwen_template
+            + "\n"
+            + f'SYSTEM """{SYSTEM_PROMPT}"""\n'
+        )
 elif CHAT_FAMILY == "gemma":
     # Gemma 4: rely on Ollama's built-in chat-template auto-detection from
     # GGUF metadata. Gemma 4's template is complex (tool-calling PR #45257)

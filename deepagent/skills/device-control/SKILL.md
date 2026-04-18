@@ -61,6 +61,37 @@ Use `ha_call_service(domain, service, entity_id, data)`:
 - **Switches**: `turn_on` / `turn_off` / `toggle`
 - **Fans**: `turn_on` / `turn_off`. Optional: `{"preset_mode": "auto"}`
 
+## Room scopes (fan out, don't ask)
+
+The bedroom is the only room with lights, and it contains exactly three
+controllable "lights": `light.bedside`, `light.table_lamp`, and the
+Alexa-proxied RGB strip (via `script.rgb_strip_*`). When the user speaks
+about the room as a whole rather than a specific device, act on all three in
+the SAME turn. Do NOT use `offer_choices` to ask which one.
+
+Trigger phrases that mean "bedroom scope, fan out to all three":
+
+- `"bedroom"`, `"the room"`, `"the bedroom"`
+- `"bedroom lights"` (plural), `"all the lights"`, `"all lights"`
+- `"set bedroom to X"`, `"turn bedroom on/off"`, `"bedroom warm white"`
+- `"dim the room"`, `"brighten the bedroom"`
+
+Worked examples:
+
+| User says | Tool calls (all in one turn) |
+|-----------|------------------------------|
+| `"Set bedroom to full brightness"` | `ha_call_service("light","turn_on","light.bedside",{"brightness":255})` + `ha_call_service("light","turn_on","light.table_lamp",{"brightness":255})` + `ha_call_service("script","rgb_strip_brightness",data={"level":100})` |
+| `"Turn off the bedroom"` | `turn_off` on `light.bedside`, `light.table_lamp`, and `script.rgb_strip_off` |
+| `"Bedroom warm white"` | `turn_on` with `color_temp_kelvin=2700` on both lights + `script.rgb_strip_color` with `color="warm white"` |
+| `"Dim the room to 30%"` | `brightness=77` on both lights + `script.rgb_strip_brightness` with `level=30` |
+
+Only use `offer_choices` if the user is clearly singular+indefinite
+("turn on *a* bedroom light", "which light is the reading one?"). A plain
+"bedroom light" still counts as the scope above.
+
+After fanning out, confirm in one sentence ("Bedroom is at full brightness")
+— do not re-list the three devices and do not second-guess.
+
 ## Colloquial names and long-term memory
 
 Friendly names in HA may not match how the user speaks (e.g. they say “bedroom light” but the entity is `light.bedside`).

@@ -64,8 +64,17 @@ Lights (2 total):
 (colloquial: "table lamp", "desk lamp", "reading lamp"). Supports colour, \
 brightness, temperature, and WiZ scenes via the standard light service.
 
-Note: "bedroom light" is ambiguous -- both bedside and table lamp live in the \
-bedroom. Use `offer_choices` to let the user pick unless context narrows it.
+Bedroom is the only room with lights. When the user's phrase is a SCOPE \
+rather than a specific lamp -- "bedroom", "bedroom lights" (plural), "the \
+room", "all the lights", or any brightness/colour/on/off verb applied to the \
+room as a whole -- treat it as "fan out to ALL THREE bedroom devices in the \
+same turn": `light.bedside` + `light.table_lamp` + the `script.rgb_strip_*` \
+bridge. Issue the tool calls together; do NOT ask which one.
+
+Only use `offer_choices` when the user has explicitly signalled they want to \
+pick ONE (singular + indefinite: "turn on a bedroom light", "which light \
+should I...?", or a direct "pick one"). A bare "bedroom light" still counts \
+as the scope above; when in doubt, fan out and confirm in one sentence.
 
 Alexa-proxied RGB LED strip (NOT Home Assistant-native; no `light.*` entity):
 The phrases "strip", "led strip", "rgb strip", "light strip", "rgb light", \
