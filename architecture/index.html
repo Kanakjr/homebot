@@ -1,0 +1,2725 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Intelligent smart-home assistant powered by LangChain + Gemini, with live Home Assistant awareness, learnable skills, and a modern dashboard.">
+      
+      
+      
+        <link rel="canonical" href="https://kanakjr.github.io/homebot/architecture/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../features/ai-dashboard/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/bot-profile.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Architecture - HomeBotAI</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#homebotai-system-architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="HomeBotAI" class="md-header__button md-logo" aria-label="HomeBotAI" data-md-component="logo">
+      
+  <img src="../assets/bot-profile.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            HomeBotAI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Kanakjr/homebot" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    Kanakjr/homebot
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../features/ai-dashboard/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Features
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../deep-agent/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Deep Agent
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../transcoder/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Transcoder
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api-reference/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../benchmarks/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  LLM Benchmarks
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="HomeBotAI" class="md-nav__button md-logo" aria-label="HomeBotAI" data-md-component="logo">
+      
+  <img src="../assets/bot-profile.png" alt="logo">
+
+    </a>
+    HomeBotAI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Kanakjr/homebot" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    Kanakjr/homebot
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#1-system-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. System overview
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. System overview">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#service-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service topology
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-request-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat request lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-internals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent internals
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Backend
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Backend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#entry-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry points
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#application-bootstrap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application bootstrap
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-agent-agentpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Agent (agent.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-memory-three-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Memory (three layers)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-tools-59-registered-in-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Tools (59 registered in backend)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-state-cache-statepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. State cache (state.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-reactor-reactorpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Reactor (reactor.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-notifier-notifierpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Notifier (notifier.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-llm-module-llmpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. LLM module (llm.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-api-endpoints-65-routes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. API endpoints (65+ routes)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-dashboard-18-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Dashboard (18 pages)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Dashboard (18 pages)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#screenshot-references-key-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Screenshot references (key pages)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-widget-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Widget system
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-frontend-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Frontend architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="13. Frontend architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tech-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tech stack
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-file-tree-representative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key file tree (representative)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-deep-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Deep Agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-transcoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Transcoder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-docker-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16. Docker deployment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3">
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/ai-dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/smart-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Smart Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/media-discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Media Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deep-agent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transcoder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transcoder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#1-system-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. System overview
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. System overview">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#service-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service topology
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-request-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat request lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-internals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent internals
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Backend
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Backend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#entry-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry points
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#application-bootstrap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application bootstrap
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-agent-agentpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Agent (agent.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-memory-three-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Memory (three layers)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-tools-59-registered-in-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Tools (59 registered in backend)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-state-cache-statepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. State cache (state.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-reactor-reactorpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Reactor (reactor.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-notifier-notifierpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Notifier (notifier.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-llm-module-llmpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. LLM module (llm.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-api-endpoints-65-routes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. API endpoints (65+ routes)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-dashboard-18-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Dashboard (18 pages)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Dashboard (18 pages)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#screenshot-references-key-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Screenshot references (key pages)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-widget-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Widget system
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-frontend-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Frontend architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="13. Frontend architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tech-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tech stack
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-file-tree-representative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key file tree (representative)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-deep-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Deep Agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-transcoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Transcoder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-docker-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16. Docker deployment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="homebotai-system-architecture">HomeBotAI -- System Architecture<a class="headerlink" href="#homebotai-system-architecture" title="Permanent link">¶</a></h1>
+<p>This document describes the full architecture of <strong>HomeBotAI</strong>: the FastAPI backend, LangGraph agent, three-layer memory, tooling surface, Next.js dashboard, Deep Agent service, and transcoder. It is written for operators and contributors who need a mental model of how components connect and where to change behavior.</p>
+<div class="admonition tip">
+<p class="admonition-title">How to read this page</p>
+<p>Use the table of contents for navigation. Mermaid diagrams render in the browser when MkDocs Material and the Mermaid extension are enabled. Collapsible sections group API routes by domain to keep the reference scannable.</p>
+</div>
+<hr>
+<h2 id="1-system-overview">1. System overview<a class="headerlink" href="#1-system-overview" title="Permanent link">¶</a></h2>
+<p>HomeBotAI is a multi-service stack: a primary <strong>Backend API</strong> (agent, memory, tools, Home Assistant integration), a <strong>Dashboard</strong> for operators, a <strong>Telegram</strong> entry point, a <strong>Deep Agent</strong> API for specialized long-running tasks, and a <strong>Transcoder</strong> for media jobs. <strong>SQLite</strong> backs persistence for chat history, semantic facts, skills, and dashboard configuration.</p>
+<h3 id="service-topology">Service topology<a class="headerlink" href="#service-topology" title="Permanent link">¶</a></h3>
+<p>Users reach HomeBotAI through the <strong>Dashboard</strong> or <strong>Telegram</strong>. Requests flow into three core services that share a persistence layer and fan out to external integrations.</p>
+<pre class="mermaid"><code>graph LR
+  subgraph users [Users]
+    Browser
+    TelegramApp[Telegram]
+  end
+
+  subgraph surfaces [Client Surfaces]
+    Dashboard["Dashboard :3001"]
+    TGBot["Telegram Bot"]
+  end
+
+  subgraph core [Core Services]
+    Backend["Backend API :8321"]
+    DeepAgent["Deep Agent :8322"]
+    TranscoderSvc["Transcoder"]
+  end
+
+  subgraph integrations [Integrations]
+    HA["Home Assistant"]
+    MediaStack["Media Stack\nSonarr / Radarr / Jellyfin\nTransmission / Jellyseerr / Prowlarr"]
+    Ollama["Ollama"]
+  end
+
+  SQLite[(SQLite)]
+
+  Browser --&gt; Dashboard
+  TelegramApp --&gt; TGBot
+  TGBot --&gt; Backend
+  Dashboard --&gt; Backend
+  Dashboard --&gt; DeepAgent
+  Backend &lt;--&gt; HA
+  Backend &lt;--&gt; MediaStack
+  Backend &lt;--&gt; Ollama
+  DeepAgent &lt;--&gt; HA
+  DeepAgent &lt;--&gt; MediaStack
+  DeepAgent &lt;--&gt; Ollama
+  TranscoderSvc --&gt; MediaStack
+  Backend --&gt; SQLite
+  DeepAgent --&gt; SQLite
+  TranscoderSvc --&gt; SQLite</code></pre>
+<div class="admonition note">
+<p class="admonition-title">Ports and roles</p>
+<p>The dashboard talks to the Backend on <strong>8321</strong> and the Deep Agent on <strong>8322</strong> for different workloads. The Telegram bot uses the Backend only. The Transcoder exposes its own FastAPI surface for library browsing and job control.</p>
+</div>
+<h3 id="chat-request-lifecycle">Chat request lifecycle<a class="headerlink" href="#chat-request-lifecycle" title="Permanent link">¶</a></h3>
+<p>A single user message triggers a multi-step pipeline: context assembly, ReAct reasoning with tool calls, and streamed response delivery.</p>
+<pre class="mermaid"><code>sequenceDiagram
+  participant U as User
+  participant D as Dashboard
+  participant API as Backend API
+  participant Mem as Memory
+  participant Agent as LangGraph Agent
+  participant LLM as Gemini / Ollama
+  participant Tools as Tool Registry
+  participant HA as Home Assistant
+
+  U -&gt;&gt; D: sends message
+  D -&gt;&gt; API: POST /api/chat/stream
+  API -&gt;&gt; Mem: load episodic + semantic context
+  API -&gt;&gt; Agent: invoke with state + history
+  Agent -&gt;&gt; LLM: prompt with system context
+  LLM --&gt;&gt; Agent: tool_call decision
+  Agent -&gt;&gt; Tools: execute tool
+  Tools -&gt;&gt; HA: call service / get state
+  HA --&gt;&gt; Tools: result
+  Tools --&gt;&gt; Agent: tool_result
+  Agent -&gt;&gt; LLM: continue reasoning
+  LLM --&gt;&gt; Agent: final response
+  Agent --&gt;&gt; API: SSE stream events
+  API --&gt;&gt; D: thinking | tool_call | response
+  D --&gt;&gt; U: renders streamed reply</code></pre>
+<h3 id="agent-internals">Agent internals<a class="headerlink" href="#agent-internals" title="Permanent link">¶</a></h3>
+<p>The backend brain assembles a grounded system prompt from three sources, then enters a ReAct loop that alternates between LLM reasoning and tool execution until it can produce a final answer.</p>
+<pre class="mermaid"><code>graph TB
+  subgraph prompt [System Prompt Construction]
+    StateCache["State Cache\nfiltered HA entities"]
+    SemanticMem["Semantic Memory\nuser preferences"]
+    ProceduralMem["Learned Skills\nprocedural memory"]
+  end
+
+  subgraph react [ReAct Loop]
+    LLM["LLM\nGemini / Ollama"]
+    Decide{Think or Act}
+    ToolExec["Tool Execution\n59 tools"]
+  end
+
+  subgraph output [Output]
+    SSE["SSE Stream\nthinking | tool_call | response"]
+  end
+
+  StateCache --&gt; LLM
+  SemanticMem --&gt; LLM
+  ProceduralMem --&gt; LLM
+  LLM --&gt; Decide
+  Decide --&gt;|"needs data"| ToolExec
+  ToolExec --&gt; LLM
+  Decide --&gt;|"ready"| SSE</code></pre>
+<hr>
+<h2 id="2-backend">2. Backend<a class="headerlink" href="#2-backend" title="Permanent link">¶</a></h2>
+<h3 id="entry-points">Entry points<a class="headerlink" href="#entry-points" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Entry point</th>
+<th>File</th>
+<th>Purpose</th>
+<th>Transport</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Telegram</td>
+<td><code>main.py</code></td>
+<td>Production chat</td>
+<td>Long polling</td>
+</tr>
+<tr>
+<td>API</td>
+<td><code>api.py</code></td>
+<td>REST + SSE (dashboard)</td>
+<td>HTTP (<code>:8321</code>)</td>
+</tr>
+<tr>
+<td>CLI</td>
+<td><code>cli.py</code></td>
+<td>Developer REPL</td>
+<td>stdin / stdout</td>
+</tr>
+</tbody>
+</table>
+<h3 id="application-bootstrap">Application bootstrap<a class="headerlink" href="#application-bootstrap" title="Permanent link">¶</a></h3>
+<p><code>bootstrap.py</code> exposes <code>create_app()</code>, which:</p>
+<ul>
+<li>Initializes <strong>memory stores</strong> (episodic, semantic, procedural)</li>
+<li><strong>Registers all tools</strong> bound to the runtime configuration</li>
+<li>Builds the <strong>LangGraph</strong> agent graph used by chat and API</li>
+<li>Connects the <strong>Home Assistant WebSocket</strong> for live entity state</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Single source of wiring</p>
+<p>Most cross-cutting setup lives in <code>create_app()</code> so tests and alternate entry points (CLI, scripts) share the same initialization path as production.</p>
+</div>
+<hr>
+<h2 id="3-agent-agentpy">3. Agent (<code>agent.py</code>)<a class="headerlink" href="#3-agent-agentpy" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Implementation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Primary model</strong></td>
+<td><code>gemini-2.5-flash</code> via <code>langchain-google-genai</code></td>
+</tr>
+<tr>
+<td><strong>Fallback</strong></td>
+<td>Ollama routing through <code>llm.py</code> and <code>model_policy.py</code></td>
+</tr>
+<tr>
+<td><strong>Orchestration</strong></td>
+<td><code>langgraph.prebuilt.create_react_agent</code> (ReAct loop)</td>
+</tr>
+<tr>
+<td><strong>System prompt</strong></td>
+<td>Built per request: live HA state, learned skills, semantic memory</td>
+</tr>
+<tr>
+<td><strong>State summary</strong></td>
+<td>Relevance-filtered: active lights, climate, playing media, anomalies</td>
+</tr>
+<tr>
+<td><strong>History</strong></td>
+<td>Last <strong>10</strong> conversation turns from episodic memory</td>
+</tr>
+<tr>
+<td><strong>Streaming</strong></td>
+<td><code>run_stream()</code> yields typed events: <code>thinking</code>, <code>tool_call</code>, <code>tool_result</code>, <code>response</code>, <code>error</code></td>
+</tr>
+</tbody>
+</table>
+<p>The agent is the interactive brain of the Backend: tool calls are explicit steps in the ReAct loop, and streaming events let the dashboard and Telegram render progress without blocking on the full completion.</p>
+<hr>
+<h2 id="4-memory-three-layers">4. Memory (three layers)<a class="headerlink" href="#4-memory-three-layers" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Purpose</th>
+<th>Storage</th>
+<th>Lifecycle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Episodic</td>
+<td>Chat history</td>
+<td>SQLite, per <code>chat_id</code></td>
+<td>Auto-trimmed to <strong>50</strong> turns</td>
+</tr>
+<tr>
+<td>Semantic</td>
+<td>User preferences, stable facts</td>
+<td>SQLite key-value</td>
+<td>Persistent</td>
+</tr>
+<tr>
+<td>Procedural</td>
+<td>Skills, routines, automation</td>
+<td>SQLite + event log</td>
+<td>User-managed</td>
+</tr>
+</tbody>
+</table>
+<p>Episodic memory feeds short conversational context; semantic memory grounds preferences across sessions; procedural memory ties user-defined skills and reactor triggers to durable records.</p>
+<hr>
+<h2 id="5-tools-59-registered-in-backend">5. Tools (59 registered in backend)<a class="headerlink" href="#5-tools-59-registered-in-backend" title="Permanent link">¶</a></h2>
+<p>Tools are Python-callable capabilities registered at bootstrap. The table below lists categories, counts, tool names, and source modules.</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th style="text-align: right;">Count</th>
+<th>Tools</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Home Assistant</td>
+<td style="text-align: right;">4</td>
+<td><code>ha_call_service</code>, <code>ha_get_camera_snapshot</code>, <code>ha_trigger_automation</code>, <code>ha_fire_event</code></td>
+<td><code>tools/homeassistant.py</code></td>
+</tr>
+<tr>
+<td>Skills</td>
+<td style="text-align: right;">7</td>
+<td><code>create_skill</code>, <code>execute_skill</code>, <code>list_skills</code>, <code>update_skill</code>, <code>delete_skill</code>, <code>toggle_skill</code>, <code>get_event_log</code></td>
+<td><code>tools/skills.py</code></td>
+</tr>
+<tr>
+<td>Memory</td>
+<td style="text-align: right;">2</td>
+<td><code>remember</code>, <code>recall</code></td>
+<td><code>tools/memory_tools.py</code></td>
+</tr>
+<tr>
+<td>Scenes</td>
+<td style="text-align: right;">3</td>
+<td><code>create_scene</code>, <code>activate_scene</code>, <code>delete_scene</code></td>
+<td><code>tools/scenes.py</code></td>
+</tr>
+<tr>
+<td>Sonarr</td>
+<td style="text-align: right;">8</td>
+<td><code>sonarr_search</code>, <code>sonarr_add_series</code>, <code>sonarr_get_queue</code>, <code>sonarr_get_series</code>, <code>sonarr_get_calendar</code>, <code>sonarr_delete_series</code>, <code>sonarr_episode_search</code>, <code>sonarr_get_history</code></td>
+<td><code>tools/sonarr.py</code></td>
+</tr>
+<tr>
+<td>Radarr</td>
+<td style="text-align: right;">8</td>
+<td><code>radarr_search</code>, <code>radarr_add_movie</code>, <code>radarr_get_queue</code>, <code>radarr_get_movies</code>, <code>radarr_get_calendar</code>, <code>radarr_delete_movie</code>, <code>radarr_movie_search</code>, <code>radarr_get_history</code></td>
+<td><code>tools/radarr.py</code></td>
+</tr>
+<tr>
+<td>Transmission</td>
+<td style="text-align: right;">8</td>
+<td><code>transmission_get_torrents</code>, <code>transmission_add_torrent</code>, <code>transmission_pause_resume</code>, <code>transmission_remove_torrent</code>, <code>transmission_set_alt_speed</code>, <code>transmission_get_session_stats</code>, <code>transmission_set_priority</code>, <code>transmission_get_free_space</code></td>
+<td><code>tools/transmission.py</code></td>
+</tr>
+<tr>
+<td>Jellyseerr</td>
+<td style="text-align: right;">5</td>
+<td><code>jellyseerr_search</code>, <code>jellyseerr_request</code>, <code>jellyseerr_get_requests</code>, <code>jellyseerr_approve_decline</code>, <code>jellyseerr_get_request_status</code></td>
+<td><code>tools/jellyseerr.py</code></td>
+</tr>
+<tr>
+<td>Prowlarr</td>
+<td style="text-align: right;">5</td>
+<td><code>prowlarr_search</code>, <code>prowlarr_get_indexers</code>, <code>prowlarr_get_indexer_stats</code>, <code>prowlarr_grab_release</code>, <code>prowlarr_get_health</code></td>
+<td><code>tools/prowlarr.py</code></td>
+</tr>
+<tr>
+<td>Jellyfin</td>
+<td style="text-align: right;">9</td>
+<td><code>jellyfin_search</code>, <code>jellyfin_get_libraries</code>, <code>jellyfin_get_latest</code>, <code>jellyfin_get_sessions</code>, <code>jellyfin_system_info</code>, <code>jellyfin_playback_control</code>, <code>jellyfin_mark_played</code>, <code>jellyfin_get_item_details</code>, <code>jellyfin_get_resume</code></td>
+<td><code>tools/jellyfin.py</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="6-state-cache-statepy">6. State cache (<code>state.py</code>)<a class="headerlink" href="#6-state-cache-statepy" title="Permanent link">¶</a></h2>
+<p>The state cache maintains a <strong>live in-memory mirror</strong> of Home Assistant entities, updated over the HA WebSocket connection.</p>
+<table>
+<thead>
+<tr>
+<th>Behavior</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Summary injection</strong></td>
+<td>A relevance-filtered summary is injected into the system prompt</td>
+</tr>
+<tr>
+<td><strong>Context-aware filtering</strong></td>
+<td>Mentioning e.g. <strong>printer</strong> surfaces 3D printer telemetry without dumping every entity</td>
+</tr>
+<tr>
+<td><strong>Recent changes</strong></td>
+<td>Tracks recent entity transitions for conversational grounding</td>
+</tr>
+<tr>
+<td><strong>Anomalies</strong></td>
+<td>Highlights unusual readings or states for the agent to reason about</td>
+</tr>
+</tbody>
+</table>
+<p>This layer decouples raw HA state volume from what the model actually sees each turn.</p>
+<hr>
+<h2 id="7-reactor-reactorpy">7. Reactor (<code>reactor.py</code>)<a class="headerlink" href="#7-reactor-reactorpy" title="Permanent link">¶</a></h2>
+<p>The reactor is the <strong>proactive automation engine</strong> running alongside the conversational agent.</p>
+<table>
+<thead>
+<tr>
+<th>Trigger type</th>
+<th>Mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Schedule</strong></td>
+<td>Cron-style schedules via <strong>APScheduler</strong></td>
+</tr>
+<tr>
+<td><strong>State change</strong></td>
+<td>Home Assistant entity transitions</td>
+</tr>
+<tr>
+<td><strong>Skills</strong></td>
+<td>User-defined skills declare triggers the reactor monitors</td>
+</tr>
+</tbody>
+</table>
+<p>Skills can therefore fire on time, on HA changes, or both, without requiring an open chat session.</p>
+<hr>
+<h2 id="8-notifier-notifierpy">8. Notifier (<code>notifier.py</code>)<a class="headerlink" href="#8-notifier-notifierpy" title="Permanent link">¶</a></h2>
+<p>The notifier sends <strong>proactive Telegram messages</strong> based on rules, for example:</p>
+<ul>
+<li>Printer job finished</li>
+<li>Battery low (threshold <strong>under 15%</strong>)</li>
+<li>Welcome home / left home style presence transitions</li>
+</ul>
+<p>A <strong>5-minute cooldown per entity</strong> reduces duplicate alerts when state flutters.</p>
+<hr>
+<h2 id="9-llm-module-llmpy">9. LLM module (<code>llm.py</code>)<a class="headerlink" href="#9-llm-module-llmpy" title="Permanent link">¶</a></h2>
+<p><code>llm.py</code> provides a <strong>provider abstraction</strong> over:</p>
+<ul>
+<li><strong>Google GenAI</strong> (primary path for the main agent and many features)</li>
+<li><strong>Ollama</strong> (local and fallback routing)</li>
+</ul>
+<p>Model resolution follows configuration and <code>model_policy.py</code>. The same stack supports <strong>skill execution</strong>, <strong>dashboard summaries</strong>, and <strong>media discovery</strong> flows that need text generation outside the main chat graph.</p>
+<hr>
+<h2 id="10-api-endpoints-65-routes">10. API endpoints (65+ routes)<a class="headerlink" href="#10-api-endpoints-65-routes" title="Permanent link">¶</a></h2>
+<p>Routes are grouped below by domain. Expand a section to scan methods and paths quickly.</p>
+<details>
+<summary>Chat endpoints</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/chat</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/chat/stream</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/chat/threads</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/chat/{id}/history</code></td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/chat/{id}/history</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Health</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/health</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/health/data</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Models</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/models</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Tools</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/tools</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Skills</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/skills</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/skills</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/skills/{id}</code></td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/skills/{id}</code></td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/skills/{id}</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/skills/{id}/toggle</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/skills/{id}/execute</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Entities</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/entities</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/entities/{id}/toggle</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/entities/{id}/light</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/entities/{id}/climate</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Events</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/events</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Memory</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/memory</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/memory</code></td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/memory/{key}</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Cameras</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/cameras/{id}/snapshot</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/snapshots/{filename}</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Dashboard</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/dashboard</code></td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/dashboard</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/dashboard/edit</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/dashboard/summary</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/generate-widget</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/suggest-widget</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Network</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/network</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Energy</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/energy</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Analytics</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/analytics</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Reports</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/reports/summary</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Scenes</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/scenes</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/scenes</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/scenes/{id}/activate</code></td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/scenes/{id}</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Floorplan</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/floorplan/config</code></td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/floorplan/config</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Device aliases</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/devices/aliases</code></td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/devices/aliases/{mac}</code></td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/devices/aliases/{mac}</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Notifications</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/notifications/rules</code></td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/notifications/rules/{id}</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Media</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/media/overview</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/media/search</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/media/downloads</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/media/downloads/{id}/action</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/media/tv</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/media/movies</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/media/library</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/media/requests</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/media/discover</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary>Server</summary>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/server/containers</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/server/tunnel</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/server/tunnel</code></td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/server/tunnel/{subdomain}</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/server/backups</code></td>
+</tr>
+</tbody>
+</table>
+</details>
+<hr>
+<h2 id="11-dashboard-18-pages">11. Dashboard (18 pages)<a class="headerlink" href="#11-dashboard-18-pages" title="Permanent link">¶</a></h2>
+<p>The dashboard is a <strong>Next.js</strong> application on port <strong>3001</strong> in development; in Docker it is typically mapped from container port 3000.</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Purpose</th>
+<th>Screenshot asset</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/</code></td>
+<td>Dashboard -- AI-customizable widget grid</td>
+<td><code>assets/screenshots/dashboard.png</code></td>
+</tr>
+<tr>
+<td><code>/chat</code></td>
+<td>AI conversation with SSE streaming</td>
+<td><code>assets/screenshots/chat.png</code></td>
+</tr>
+<tr>
+<td><code>/devices</code></td>
+<td>Entity browser with domain filters</td>
+<td><code>assets/screenshots/devices.png</code></td>
+</tr>
+<tr>
+<td><code>/cameras</code></td>
+<td>Live camera snapshots</td>
+<td><code>assets/screenshots/cameras.png</code></td>
+</tr>
+<tr>
+<td><code>/activity</code></td>
+<td>Real-time event stream</td>
+<td><code>assets/screenshots/activity.png</code></td>
+</tr>
+<tr>
+<td><code>/energy</code></td>
+<td>Power and energy charts, battery levels</td>
+<td><code>assets/screenshots/energy.png</code></td>
+</tr>
+<tr>
+<td><code>/network</code></td>
+<td>Mesh nodes, clients, bandwidth</td>
+<td><code>assets/screenshots/network.png</code></td>
+</tr>
+<tr>
+<td><code>/media</code></td>
+<td>Unified media management</td>
+<td><code>assets/screenshots/media.png</code></td>
+</tr>
+<tr>
+<td><code>/health</code></td>
+<td>Wearable health metrics</td>
+<td><code>assets/screenshots/health.png</code></td>
+</tr>
+<tr>
+<td><code>/analytics</code></td>
+<td>Historical trends</td>
+<td><code>assets/screenshots/analytics.png</code></td>
+</tr>
+<tr>
+<td><code>/reports</code></td>
+<td>Long-term data summaries</td>
+<td><code>assets/screenshots/reports.png</code></td>
+</tr>
+<tr>
+<td><code>/skills</code></td>
+<td>Skill manager with triggers</td>
+<td><code>assets/screenshots/skills.png</code></td>
+</tr>
+<tr>
+<td><code>/home-map</code></td>
+<td>Interactive SVG floorplan</td>
+<td><code>assets/screenshots/home-map.png</code></td>
+</tr>
+<tr>
+<td><code>/memory</code></td>
+<td>Semantic memory facts</td>
+<td><code>assets/screenshots/memory.png</code></td>
+</tr>
+<tr>
+<td><code>/tools</code></td>
+<td>Tool reference by category</td>
+<td><code>assets/screenshots/tools.png</code></td>
+</tr>
+<tr>
+<td><code>/settings</code></td>
+<td>Notification rules, aliases</td>
+<td><code>assets/screenshots/settings.png</code></td>
+</tr>
+<tr>
+<td><code>/server</code></td>
+<td>Docker, Cloudflare tunnel, backups</td>
+<td><code>assets/screenshots/server.png</code></td>
+</tr>
+<tr>
+<td><code>/transcoder</code></td>
+<td>Library browser, transcode jobs</td>
+<td><code>assets/screenshots/transcoder.png</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="screenshot-references-key-pages">Screenshot references (key pages)<a class="headerlink" href="#screenshot-references-key-pages" title="Permanent link">¶</a></h3>
+<p>Images are resolved relative to the docs root (<code>docs/</code>). Place files under <code>docs/assets/screenshots/</code>.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../assets/screenshots/dashboard.png" data-desc-position="bottom"><img alt="Dashboard" src="../assets/screenshots/dashboard.png"></a></p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../assets/screenshots/chat.png" data-desc-position="bottom"><img alt="Chat" src="../assets/screenshots/chat.png"></a></p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../assets/screenshots/devices.png" data-desc-position="bottom"><img alt="Devices" src="../assets/screenshots/devices.png"></a></p>
+<hr>
+<h2 id="12-widget-system">12. Widget system<a class="headerlink" href="#12-widget-system" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Component count</strong></td>
+<td><strong>19</strong> widget types</td>
+</tr>
+<tr>
+<td><strong>Rendering</strong></td>
+<td><code>DashboardRenderer</code> renders from <strong>JSON</strong> dashboard configuration</td>
+</tr>
+<tr>
+<td><strong>AI creation</strong></td>
+<td><code>WidgetBuilder</code> assists AI-powered widget creation</td>
+</tr>
+<tr>
+<td><strong>Editing</strong></td>
+<td><code>WidgetEditModal</code> for in-place edits</td>
+</tr>
+<tr>
+<td><strong>Generative UI</strong></td>
+<td>Catalog and registry: <code>catalog.ts</code>, <code>registry.tsx</code>, <code>GenUIRenderer.tsx</code></td>
+</tr>
+<tr>
+<td><strong>Layout</strong></td>
+<td><code>react-grid-layout</code> for drag-and-drop and responsive grids</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Widget types:</strong> <code>AiSummaryBanner</code>, <code>AirPurifier</code>, <code>BandwidthChart</code>, <code>Camera</code>, <code>ClimateControl</code>, <code>Gauge</code>, <code>Health</code>, <code>LightControl</code>, <code>PowerChart</code>, <code>Presence</code>, <code>Printer</code>, <code>QuickActions</code>, <code>RoomEnvironment</code>, <code>SceneButtons</code>, <code>SensorGrid</code>, <code>SmartPlug</code>, <code>Stat</code>, <code>ToggleGroup</code>, <code>WeatherCard</code>, <code>Weather</code>.</p>
+<hr>
+<h2 id="13-frontend-architecture">13. Frontend architecture<a class="headerlink" href="#13-frontend-architecture" title="Permanent link">¶</a></h2>
+<h3 id="tech-stack">Tech stack<a class="headerlink" href="#tech-stack" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Choice</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Framework</td>
+<td>Next.js 15</td>
+</tr>
+<tr>
+<td>Language</td>
+<td>TypeScript</td>
+</tr>
+<tr>
+<td>Styling</td>
+<td>Tailwind CSS</td>
+</tr>
+<tr>
+<td>Motion</td>
+<td>Framer Motion</td>
+</tr>
+<tr>
+<td>Grid layout</td>
+<td>react-grid-layout</td>
+</tr>
+</tbody>
+</table>
+<h3 id="key-file-tree-representative">Key file tree (representative)<a class="headerlink" href="#key-file-tree-representative" title="Permanent link">¶</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>dashboard/
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── app/                    # App Router pages and layouts
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── components/
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── dashboard/          # DashboardRenderer, widgets, modals
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   ├── chat/               # SSE chat UI
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│   └── ...
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>├── lib/
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   ├── api.ts              # fetchJSON, SSE helpers
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│   └── hooks/              # useChat, useEntities, etc.
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>├── widgets/
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── catalog.ts          # Widget metadata for AI / builder
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   ├── registry.tsx        # Component registry
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│   └── GenUIRenderer.tsx   # Generative UI bridge
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>└── public/
+</code></pre></div>
+<p>The frontend treats the Backend as the single source of truth for entities, memory, and skills, while the Deep Agent is invoked for workloads that need the separate tool surface and skills bundle.</p>
+<hr>
+<h2 id="14-deep-agent">14. Deep Agent<a class="headerlink" href="#14-deep-agent" title="Permanent link">¶</a></h2>
+<p>The <strong>Deep Agent</strong> is a <strong>standalone FastAPI</strong> service on port <strong>8322</strong>. It uses the <strong>LangChain Deep Agents</strong> architecture with a dedicated LangGraph graph.</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Port</strong></td>
+<td><code>8322</code></td>
+</tr>
+<tr>
+<td><strong>Tools</strong></td>
+<td><strong>49</strong> tools across <strong>8</strong> modules</td>
+</tr>
+<tr>
+<td><strong>Modules</strong></td>
+<td>Home Assistant (5), Sonarr (8), Radarr (8), Jellyfin (9), Transmission (8), Jellyseerr (5), Prowlarr (5), <code>render_ui</code> (1)</td>
+</tr>
+<tr>
+<td><strong>Skills</strong></td>
+<td><code>SKILL.md</code> skills: device-control, media-management, energy-insights, network-diagnostics</td>
+</tr>
+<tr>
+<td><strong>Routing</strong></td>
+<td>Model policy selects <strong>Ollama</strong> vs <strong>Google GenAI</strong> per configuration</td>
+</tr>
+</tbody>
+</table>
+<p>The dashboard can call this service in parallel with the main Backend when a task benefits from the Deep Agent toolpack and skill documents.</p>
+<hr>
+<h2 id="15-transcoder">15. Transcoder<a class="headerlink" href="#15-transcoder" title="Permanent link">¶</a></h2>
+<p>The transcoder is a <strong>HandBrake-based</strong> service for batch and on-demand transcoding.</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>transcoder.py</code></td>
+<td>Core encode pipeline and job orchestration</td>
+</tr>
+<tr>
+<td><code>api.py</code></td>
+<td>FastAPI HTTP surface</td>
+</tr>
+<tr>
+<td><code>db.py</code></td>
+<td>SQLite persistence for jobs and metadata</td>
+</tr>
+<tr>
+<td><code>scanner.py</code></td>
+<td>Library scanning and inventory</td>
+</tr>
+<tr>
+<td><code>scheduler.py</code></td>
+<td>Scheduled transcode jobs</td>
+</tr>
+<tr>
+<td><code>config.py</code></td>
+<td>Service configuration</td>
+</tr>
+</tbody>
+</table>
+<p>The dashboard <code>/transcoder</code> page talks to this service for library browsing and job control; HandBrake runs as the actual encoder backend.</p>
+<hr>
+<h2 id="16-docker-deployment">16. Docker deployment<a class="headerlink" href="#16-docker-deployment" title="Permanent link">¶</a></h2>
+<p>Typical Compose-style service definitions:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">homebot</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">build</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./backend</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"8321:8321"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nt">homebot-dashboard</span><span class="p">:</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">build</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./dashboard</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"3001:3000"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="nt">homebot-deepagent</span><span class="p">:</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="nt">build</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./deepagent</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"8322:8322"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="nt">transcoder</span><span class="p">:</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">  </span><span class="nt">build</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./transcoder</span>
+</code></pre></div>
+<p>Adjust image names, networks, volumes, and environment files to match your host. SQLite files and media libraries should live on <strong>persistent volumes</strong> where noted in your deployment docs.</p>
+<hr>
+<h2 id="related-documentation">Related documentation<a class="headerlink" href="#related-documentation" title="Permanent link">¶</a></h2>
+<ul>
+<li><a href="../deep-agent/">Deep Agent</a> -- focused guide to the 8322 service</li>
+<li><a href="../transcoder/">Transcoder</a> -- encoding and scheduling details</li>
+<li><a href="../api-reference/">API Reference</a> -- request and response shapes</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright 2024-2026 HomeBotAI
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/Kanakjr/homebot" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "search.highlight", "search.suggest", "content.code.copy", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>

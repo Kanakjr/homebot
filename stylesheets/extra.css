@@ -1,0 +1,161 @@
+/* ── Obsidian-inspired purple theme ───────────────────────────────────
+   Clean white background, purple headers/accents, minimal and fresh.
+   ──────────────────────────────────────────────────────────────────── */
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:             #7C3AED;
+  --md-primary-fg-color--light:      #A78BFA;
+  --md-primary-fg-color--dark:       #6D28D9;
+  --md-accent-fg-color:              #8B5CF6;
+  --md-accent-fg-color--transparent: rgba(139, 92, 246, 0.1);
+  --md-default-bg-color:             #ffffff;
+  --md-default-fg-color:             #1e1e1e;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:             #A78BFA;
+  --md-primary-fg-color--light:      #C4B5FD;
+  --md-primary-fg-color--dark:       #7C3AED;
+  --md-accent-fg-color:              #A78BFA;
+  --md-accent-fg-color--transparent: rgba(167, 139, 250, 0.1);
+  --md-hue: 260;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────
+   Purple header with white text -- standard for dark-primary schemes.
+   ──────────────────────────────────────────────────────────────────── */
+
+.md-header {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.md-header__title {
+  font-weight: 600;
+}
+
+.md-header[data-md-state="shadow"] {
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.12);
+}
+
+/* ── Navigation tabs ─────────────────────────────────────────────── */
+
+.md-tabs {
+  border-bottom: 1px solid rgba(124, 58, 237, 0.08);
+}
+
+/* ── Lead paragraph ──────────────────────────────────────────────── */
+
+.lead {
+  font-size: 1.2rem;
+  line-height: 1.7;
+  color: var(--md-default-fg-color--light);
+  max-width: 48rem;
+}
+
+/* ── Screenshot images ───────────────────────────────────────────── */
+
+img.shadow,
+img[src*="screenshots"] {
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(124, 58, 237, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+img.shadow:hover,
+img[src*="screenshots"]:hover {
+  transform: scale(1.01);
+  box-shadow: 0 8px 30px rgba(124, 58, 237, 0.15);
+}
+
+[data-md-color-scheme="slate"] img.shadow,
+[data-md-color-scheme="slate"] img[src*="screenshots"] {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  border-color: rgba(167, 139, 250, 0.12);
+}
+
+[data-md-color-scheme="slate"] img.shadow:hover,
+[data-md-color-scheme="slate"] img[src*="screenshots"]:hover {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+/* ── Feature gallery cards ───────────────────────────────────────── */
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid.cards > ol > li {
+  border: 1px solid rgba(124, 58, 237, 0.1);
+  border-radius: 10px;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid.cards > ol > li:hover {
+  border-color: rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.08);
+  transform: translateY(-2px);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li {
+  border-color: rgba(167, 139, 250, 0.12);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li:hover {
+  border-color: rgba(167, 139, 250, 0.3);
+  box-shadow: 0 4px 16px rgba(167, 139, 250, 0.08);
+}
+
+/* ── Code blocks ─────────────────────────────────────────────────── */
+
+.md-typeset code {
+  border-radius: 4px;
+}
+
+.md-typeset pre > code {
+  border-left: 3px solid var(--md-accent-fg-color);
+}
+
+[data-md-color-scheme="default"] .md-typeset pre > code {
+  background-color: #fafafa;
+}
+
+/* ── Admonition accent tweaks ────────────────────────────────────── */
+
+.md-typeset .admonition.tip,
+.md-typeset details.tip {
+  border-color: var(--md-primary-fg-color);
+}
+
+/* ── Footer ──────────────────────────────────────────────────────── */
+
+[data-md-color-scheme="default"] .md-footer {
+  border-top: 1px solid rgba(124, 58, 237, 0.08);
+}
+
+[data-md-color-scheme="slate"] .md-footer {
+  border-top: 1px solid rgba(167, 139, 250, 0.1);
+}
+
+/* ── Sidebar active indicator ────────────────────────────────────── */
+
+.md-nav__link--active {
+  font-weight: 600;
+}
+
+/* ── Scrollbar accent (Webkit) ───────────────────────────────────── */
+
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.25);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.4);
+}
+
+[data-md-color-scheme="slate"] ::-webkit-scrollbar-thumb {
+  background: rgba(167, 139, 250, 0.25);
+}
+
+[data-md-color-scheme="slate"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(167, 139, 250, 0.4);
+}
