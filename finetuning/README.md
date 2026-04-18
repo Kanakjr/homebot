@@ -12,7 +12,12 @@ Modelfile) is identical across sizes because it follows Unsloth's official
 Qwen3.5 recipe. Recommended flow: run 2B first for a fast sanity loop, then
 switch to 4B for the final ship build.
 
-After training, flipping `MODEL=ollama:homebot-qwen3_5-<size>` in the deepagent
+A parallel **Gemma 4** notebook (`unsloth_gemma4_homebot.ipynb`) trains Google's
+Gemma 4 E2B / E4B on the same dataset with the same LoRA + GGUF flow, so you
+can A/B the two architectures without rebuilding any data. See
+[Which model should I train?](#which-model-should-i-train) below.
+
+After training, flipping `MODEL=ollama:homebot-<family>-<size>` in the deepagent
 env is all it takes to swap from Gemini to the local model.
 
 ## Why Qwen3.5, bf16 LoRA?
@@ -29,6 +34,34 @@ normal quantization differences."* We therefore use **bf16 LoRA** (trades ~2x
 VRAM for better accuracy -- still fits 16 GB T4). Thinking mode is disabled by
 default on small Qwen3.5 models, which is exactly what we want for
 deterministic tool calls.
+
+## Which model should I train?
+
+Three viable families work on the current dataset. All three reuse the exact
+same `kanakjr/homebot-qwen3.5` hub dataset -- the conversations are model-
+agnostic until `apply_chat_template` runs in step 5, so no re-curation is
+required to try a different architecture.
+
+| Family              | Params  | bf16 on T4? | Mac Ollama Q4_K_M (est) | Tool-call format           | When to pick |
+|---------------------|---------|-------------|-------------------------|----------------------------|--------------|
+| **Qwen3.5-2B**      | 2B      | yes (~5 GB) | **~30 tok/s** (fastest) | ChatML `<tool_call>` JSON  | Fast lane -- short commands, snappy Telegram loop |
+| **Qwen3.5-4B**      | 4B      | yes (~10 GB)| ~18 tok/s               | ChatML `<tool_call>` JSON  | **Production default** -- proven tool loop, ship build |
+| Gemma 4 E2B         | 5.1B    | yes (~10 GB)| ~15 tok/s               | Native OpenAI `tool_calls` | A/B candidate -- newer training, 128K ctx, 140 langs |
+| Gemma 4 E4B         | 8B      | **no** (16 GB > T4; QLoRA only) | ~8-10 tok/s | Native OpenAI `tool_calls` | Quality ceiling on Ampere+ hardware; slow on Mac |
+
+**Recommendation:**
+
+1. **Production: Qwen3.5-4B.** The current pipeline, prompts, and Modelfile are
+   tuned around Qwen's ChatML tool-call format. Keep shipping this.
+2. **Fast lane: Qwen3.5-2B.** Meaningfully snappier on Mac for quick commands
+   (`"turn off the light"`). Useful as a router / quick handler in front of 4B.
+3. **Experiment: Gemma 4 E2B.** Very similar footprint to Qwen3.5-4B on disk
+   but newer training data, native OpenAI-format tool calling (less escaping at
+   inference), and 128K context. Worth A/B-ing if you suspect Qwen is
+   bottlenecking on Indian-English / Hindi code-mixing.
+4. **Skip for now: Gemma 4 E4B.** Doesn't fit bf16 on Colab T4; QLoRA on T4
+   degrades accuracy; on Mac it's ~2x slower than Qwen3.5-4B at the same
+   quantisation. Only worth training if you have an L4 / A100 / RTX 4090+.
 
 ## Architecture
 
@@ -115,8 +148,10 @@ natural-language response from tool outputs:
 | `merge_datasets.py` | Dedup + 90/10 split -> `data/qwen3_5_training.jsonl` + `data/qwen3_5_val.jsonl` |
 | `push_to_hub.py` | Push merged splits to `kanakjr/homebot-qwen3.5` on HF Hub |
 | `run_pipeline.sh` | Orchestrator wrapping every step (see `Commands` below) |
-| `unsloth_qwen3_5_4b_homebot.ipynb` | **Colab T4** notebook: bf16-declared LoRA (runs as fp16 on T4), `FastVisionModel` loader, parquet fallback for Colab's older `datasets`, `train_on_responses_only`, GGUF Q4_K_M |
-| `unsloth_qwen3_5_homebot_nvidia.ipynb` | **Native NVIDIA GPU** notebook: real bf16 LoRA, `FastLanguageModel`, auto batch-size from free VRAM, Flash Attention 2; targets Ampere/Ada/Hopper/Blackwell (A100, L4, RTX 4090/6000 Ada, H100, B200, RTX Pro 6000) |
+| `unsloth_qwen3_5_4b_homebot.ipynb` | **Colab T4** notebook (Qwen): bf16-declared LoRA (runs as fp16 on T4), `FastVisionModel` loader, parquet fallback for Colab's older `datasets`, `train_on_responses_only`, GGUF Q4_K_M |
+| `unsloth_qwen3_5_homebot_nvidia.ipynb` | **Native NVIDIA GPU** notebook (Qwen): real bf16 LoRA, `FastLanguageModel`, auto batch-size from free VRAM, Flash Attention 2; targets Ampere/Ada/Hopper/Blackwell (A100, L4, RTX 4090/6000 Ada, H100, B200, RTX Pro 6000) |
+| `unsloth_gemma4_homebot.ipynb` | **Colab T4** notebook (Gemma 4): same LoRA + GGUF flow on Gemma 4 E2B (bf16) or E4B (auto-QLoRA on T4). Reuses `kanakjr/homebot-qwen3.5` dataset unchanged; swaps chat template, `train_on_responses_only` delimiters, and Modelfile. |
+| `scripts/build_gemma4_notebook.py` | Generator that re-emits `unsloth_gemma4_homebot.ipynb` from the Qwen T4 notebook so the two stay in parity. Run `python scripts/build_gemma4_notebook.py` after editing the Qwen notebook to propagate shared changes (install pins, LoRA config, SFT args, etc.). |
 | `homebot_qwen3_5.Modelfile` | Ollama Modelfile with Qwen3.5 sampling params + tool_call template |
 | `requirements.txt` | Python deps for local pipeline (not Colab) |
 
@@ -236,32 +271,80 @@ Step 16 has optional flags (`PUSH_GGUF_TO_HUB`, `PUSH_MERGED_TO_HUB`) if you
 want the GGUF or full 16-bit merged weights backed up on
 `kanakjr/homebot-qwen3.5-{2b|4b}-gguf`.
 
+### 3c. Train Gemma 4 on Colab T4
+
+Same dataset, same LoRA recipe, Google's Gemma 4 instead of Qwen3.5. Use this
+when you want to A/B Gemma against the Qwen ship build (see
+[Which model should I train?](#which-model-should-i-train)).
+
+1. Open `unsloth_gemma4_homebot.ipynb` in Colab with a **T4 GPU** runtime.
+2. In **Step 0** paste your HF write token, then pick a size:
+   - `MODEL_SIZE = "E2B"` (default) -- ~10 GB VRAM in bf16 LoRA, ~12 min for
+     2 epochs on T4. Comfortable fit. Start here.
+   - `MODEL_SIZE = "E4B"` -- 8B params, 16 GB bf16 (doesn't fit T4). The
+     registry auto-sets `load_in_4bit = True` so E4B runs as QLoRA on T4;
+     flip it back to `False` if you are on L4 / A100 / RTX 4090+.
+3. `Runtime -> Run all`. The install cell pins `transformers==5.5.0`,
+   `datasets==4.3.0`, and `timm` (required for Gemma 4's vision/audio towers
+   -- we freeze them and only train language layers).
+4. Step 16 writes `homebot-gemma4-<e2b|e4b>.Q4_K_M.gguf` + a matching
+   `homebot-gemma4-<e2b|e4b>.Modelfile`. Download both, `ollama create`, and
+   the DeepAgent's existing `ollama:<name>` resolver picks it up.
+
+**What's different from the Qwen notebook (at a glance):**
+
+| | Qwen3.5 notebook | Gemma 4 notebook |
+|---|---|---|
+| Chat template | `"qwen3-instruct"` (`<\|im_start\|>role`) | `"gemma-4"` (`<start_of_turn>role`) |
+| Assistant role name | `assistant` | `model` |
+| `train_on_responses_only` delimiters | `<\|im_start\|>user\n` / `<\|im_start\|>assistant\n` | `<start_of_turn>user\n` / `<start_of_turn>model\n` |
+| Tool-call serialisation in GGUF | `<tool_call>{...}</tool_call>` wrapper | Native OpenAI `tool_calls` array |
+| Install pins | `transformers==5.2.0` | `transformers==5.5.0` + `timm` |
+| Stop tokens (Modelfile) | `<\|im_end\|>`, `<\|im_start\|>`, `<\|endoftext\|>` | `<end_of_turn>`, `<start_of_turn>`, `<eos>` |
+| Ollama TEMPLATE block | explicit Go template w/ tool_call branch | omitted -- relies on GGUF metadata auto-detect |
+
+`unsloth_gemma4_homebot.ipynb` is **regenerated from the Qwen T4 notebook** via
+`scripts/build_gemma4_notebook.py`. If you edit the Qwen notebook (dataset
+loader, LoRA config, SFT args, etc.), re-run the generator to propagate the
+change into the Gemma notebook. Model-specific cells (config, install, model
+load, chat template, response-mask delimiters, Modelfile, troubleshooting)
+are overridden inside the script and won't be clobbered.
+
+```bash
+cd Apps/homebot/finetuning
+python scripts/build_gemma4_notebook.py
+```
+
 ### 4. Deploy locally via Ollama
 
-Pick the build you want to deploy (`2b` or `4b`), place its GGUF next to its
-Modelfile, then:
+Pick the build you want to deploy, place its GGUF next to its Modelfile, then:
 
 ```bash
 cd Apps/homebot/finetuning
 
-# 2B fast build
+# Qwen3.5-2B fast build
 ollama create homebot-qwen3_5-2b -f homebot-qwen3_5-2b.Modelfile
 ollama run homebot-qwen3_5-2b "turn off the air purifier"
 
-# 4B final build (can coexist with 2B -- different names)
+# Qwen3.5-4B final build (can coexist with 2B -- different names)
 ollama create homebot-qwen3_5-4b -f homebot-qwen3_5-4b.Modelfile
 ollama run homebot-qwen3_5-4b "turn off the air purifier"
+
+# Gemma 4 E2B experimental build (coexists with Qwen builds)
+ollama create homebot-gemma4-e2b -f homebot-gemma4-e2b.Modelfile
+ollama run homebot-gemma4-e2b "turn off the air purifier"
 ```
 
 Flip the deepagent over by setting in `Apps/homebot/deepagent/.env`:
 
 ```
-MODEL=ollama:homebot-qwen3_5-2b    # or homebot-qwen3_5-4b
+MODEL=ollama:homebot-qwen3_5-4b       # production
+# MODEL=ollama:homebot-qwen3_5-2b     # fast lane
+# MODEL=ollama:homebot-gemma4-e2b     # A/B candidate
 ```
 
 `deepagent/agent.py::_resolve_model` already handles the `ollama:` prefix, so
-you can A/B the two builds just by editing this one line and restarting
-the deepagent.
+you can A/B builds just by editing this one line and restarting the deepagent.
 
 ## Data Quality Gates
 
@@ -389,3 +472,44 @@ _text_tok = getattr(tokenizer, "tokenizer", tokenizer)
 lens = [len(_text_tok(r["text"])["input_ids"]) for r in train_ds]
 print(f"max={max(lens)}  > 12288: {sum(1 for l in lens if l > 12288)}")
 ```
+
+### Gemma-4-specific pitfalls
+
+- **`TemplateError: Conversation roles must alternate user/assistant/user/
+  assistant/...`** Gemma 4's stock Jinja chat template (shipped with
+  `transformers==5.5.0`) does **not** support the OpenAI-style `system` /
+  `tool` roles -- the tool-calling patch HF #45257 is not in that release.
+  Step 6 of the notebook already works around this by flattening our
+  multi-turn ChatML into strict `user/assistant/user/assistant` alternation
+  via `_flatten_to_strict_alternation`:
+    - `system` content is prepended to the next `user` turn.
+    - `assistant.tool_calls` become inline `<tool_call>{...}</tool_call>`
+      blocks in the assistant `content`. The model learns to emit these
+      verbatim; Ollama's Gemma renderer re-wraps them as native tool calls
+      at inference time.
+    - `role=tool` outputs become `user` turns wrapped in
+      `<tool_response>...</tool_response>`.
+  If you still hit this error, you are calling
+  `tokenizer.apply_chat_template(convo, ...)` on the raw messages somewhere
+  (e.g. a custom eval cell). Route the input through
+  `_flatten_to_strict_alternation(convo)` first.
+- **`KeyError: 'gemma4'` during model load.** Install cell didn't pick up
+  `transformers==5.5.0`. Re-run the install cell; if that doesn't fix it,
+  `Runtime -> Restart`, then `Run all`.
+- **`ImportError: cannot import name 'gemma4' from 'timm'`.** Same root cause
+  as above -- `timm` didn't upgrade. Re-run `!pip install --no-deps --upgrade
+  timm` then retry the model-load cell.
+- **Response mask finds zero matches on Gemma data.** Make sure
+  `train_on_responses_only` uses `<start_of_turn>user\n` /
+  `<start_of_turn>model\n`, not the Qwen ChatML delimiters. Gemma uses
+  `model` (not `assistant`) as the assistant-role name in its template.
+- **`ollama run` emits raw `<start_of_turn>model` tokens in output.** Your
+  Ollama build is older than the one that auto-detects Gemma 4's chat
+  template from GGUF metadata (shipped with Ollama >= 0.12). Either upgrade
+  Ollama or paste an explicit `TEMPLATE """..."""` block into the Modelfile
+  (see `ollama show --modelfile gemma3` for a starting point and swap
+  `assistant` -> `model`).
+- **OOM on T4 with Gemma 4 E4B.** Expected -- E4B is 8B params (~16 GB bf16,
+  > T4's 14.5 GB). The notebook's `_MODEL_REGISTRY` auto-enables `load_in_4bit
+  = True` for E4B so weights fit; if you forced it off, either flip it back
+  or pick `MODEL_SIZE = "E2B"`.
