@@ -115,7 +115,8 @@ natural-language response from tool outputs:
 | `merge_datasets.py` | Dedup + 90/10 split -> `data/qwen3_5_training.jsonl` + `data/qwen3_5_val.jsonl` |
 | `push_to_hub.py` | Push merged splits to `kanakjr/homebot-qwen3.5` on HF Hub |
 | `run_pipeline.sh` | Orchestrator wrapping every step (see `Commands` below) |
-| `unsloth_qwen3_5_4b_homebot.ipynb` | Colab T4 notebook: bf16 LoRA, `train_on_responses_only`, GGUF Q4_K_M |
+| `unsloth_qwen3_5_4b_homebot.ipynb` | **Colab T4** notebook: bf16-declared LoRA (runs as fp16 on T4), `FastVisionModel` loader, parquet fallback for Colab's older `datasets`, `train_on_responses_only`, GGUF Q4_K_M |
+| `unsloth_qwen3_5_homebot_nvidia.ipynb` | **Native NVIDIA GPU** notebook: real bf16 LoRA, `FastLanguageModel`, auto batch-size from free VRAM, Flash Attention 2; targets Ampere/Ada/Hopper/Blackwell (A100, L4, RTX 4090/6000 Ada, H100, B200, RTX Pro 6000) |
 | `homebot_qwen3_5.Modelfile` | Ollama Modelfile with Qwen3.5 sampling params + tool_call template |
 | `requirements.txt` | Python deps for local pipeline (not Colab) |
 
@@ -196,6 +197,44 @@ The merge step already prints a `[merge] WARNING: synthetic/real ratio is
 N/M (>=5x)` line when the dataset is skewed; that's your cue to bump
 `REAL_OVERSAMPLE` or run `./run_pipeline.sh real --days 365 --limit 5000`
 to pull more authentic Telegram history before re-merging.
+
+### 3b. Train on a native NVIDIA GPU (A100 / L4 / RTX 4090 / RTX 6000 Ada / H100 / B200 / RTX Pro 6000)
+
+Prefer this path over the Colab notebook when you have access to an Ampere or
+newer GPU -- it trains in **native bf16**, auto-sizes the batch to the detected
+free VRAM, and skips every Colab-specific workaround (no `torchcodec` uninstall,
+no `FastVisionModel` dtype-juggling, no raw-parquet fallback).
+
+1. Upload `unsloth_qwen3_5_homebot_nvidia.ipynb` to your GPU box (Jupyter, VS
+   Code remote, or a Kubernetes/Brev/Runpod-style notebook node).
+2. **Step 0** -- paste your HF write token, pick `MODEL_SIZE = "2B"` or
+   `"4B"`. `BUILD_TAG` is derived from the size so 2B and 4B artifacts never
+   collide.
+3. **Step 2** -- the notebook auto-detects the GPU, reports `bf16_supported`,
+   and picks `BATCH_SIZE` based on free VRAM (e.g. 8 on 48 GB, 16 on 180 GB).
+   Override by setting `BATCH_SIZE` explicitly in step 0.
+4. `Run All`. The dataset is pulled from `kanakjr/homebot-qwen3.5` exactly
+   like the Colab flow, but `load_dataset()` just works (modern `datasets`).
+5. Step 15 emits the GGUF at `./{BUILD_TAG}/{BUILD_TAG}.Q4_K_M.gguf`. Step 17
+   writes a matching `{BUILD_TAG}.Modelfile` (the canonical template from
+   `homebot_qwen3_5.Modelfile`, with the `FROM` line rewritten to point at
+   the new GGUF).
+6. `scp` both files back to the Mac and follow the Ollama steps in 4. below.
+
+Rough wall-clock (2 epochs, bf16 LoRA, `BATCH_SIZE=8`):
+
+| GPU                 | VRAM    | Qwen3.5-2B | Qwen3.5-4B |
+|---------------------|---------|------------|------------|
+| RTX 4090            | 24 GB   | ~2 min     | ~5 min     |
+| RTX 6000 Ada        | 48 GB   | ~3 min     | ~8 min     |
+| H100                | 80 GB   | ~1 min     | ~3 min     |
+| B200                | 180 GB  | ~45 s      | ~2 min     |
+
+(Colab T4 is ~8 min / 2B, ~20 min / 4B for comparison.)
+
+Step 16 has optional flags (`PUSH_GGUF_TO_HUB`, `PUSH_MERGED_TO_HUB`) if you
+want the GGUF or full 16-bit merged weights backed up on
+`kanakjr/homebot-qwen3.5-{2b|4b}-gguf`.
 
 ### 4. Deploy locally via Ollama
 
