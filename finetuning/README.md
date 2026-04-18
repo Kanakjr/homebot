@@ -306,3 +306,86 @@ The `format` and `real` stages share a single cleanup pipeline
 - The Modelfile ships with a compact fallback SYSTEM prompt for direct
   `ollama run` debugging; at runtime the deepagent injects its authoritative
   system prompt via the LangChain chat interface, which takes precedence.
+
+## Troubleshooting
+
+### `Removed N out of M samples where all labels were -100`
+
+This is Unsloth's way of saying `train_on_responses_only` could not find
+any assistant response tokens in those rows. There are three distinct
+causes we have hit; check them in this order:
+
+**1. `FastVisionModel.from_pretrained` didn't receive `max_seq_length`.**
+
+This is the one that bit us hardest. If you load the model like this:
+
+```python
+model, tokenizer = FastVisionModel.from_pretrained(
+    MODEL_NAME,
+    load_in_4bit = False,   # no max_seq_length passed
+)
+```
+
+Unsloth silently defaults to `max_seq_length = 2048-4096`. That cap is
+baked into the model and tokeniser and clips downstream tokenisation
+even when `SFTConfig.max_length` is larger. Rows longer than the default
+get right-truncated past the assistant turn, masking fails, and those
+rows are dropped. The symptom is suspiciously specific: the number of
+rows that survive equals the number of rows shorter than 4096 tokens.
+
+Fix: pass it explicitly (already applied in the notebook).
+
+```python
+model, tokenizer = FastVisionModel.from_pretrained(
+    MODEL_NAME,
+    max_seq_length = MAX_SEQ_LENGTH,   # <-- REQUIRED
+    load_in_4bit   = False,
+    use_gradient_checkpointing = "unsloth",
+)
+```
+
+**2. Defensive: use the inner text tokeniser, not the VLM processor.**
+
+`FastVisionModel` returns a Qwen3.5-VL *processor*, not a plain text
+tokeniser. Its `__call__` treats the first positional argument as image
+input, so any code path that passes the chat-template string positionally
+(e.g. the sanity-inference cell in step 12) crashes with `ValueError:
+Incorrect image source`. It is not the primary cause of dropped rows in
+training, but it is a sharp edge worth avoiding. Extract the inner text
+tokeniser once and reuse it:
+
+```python
+_text_tok = getattr(tokenizer, "tokenizer", tokenizer)
+
+trainer = SFTTrainer(model=model, tokenizer=_text_tok, ...)
+
+trainer = train_on_responses_only(
+    trainer,
+    tokenizer        = _text_tok,
+    instruction_part = "<|im_start|>user\n",
+    response_part    = "<|im_start|>assistant\n",
+)
+```
+
+On the NVIDIA notebook this is a no-op because `FastLanguageModel` already
+exposes a plain tokeniser with no `.tokenizer` attribute.
+
+**3. Legitimate truncation of rare, very long rows.**
+
+After fixes 1 and 2 you should see the vast majority of rows survive
+(e.g. 262/268 at `MAX_SEQ_LENGTH=12288`). The handful that still drop are
+genuine outliers whose raw token length exceeds your budget. Either raise
+`MAX_SEQ_LENGTH` further (16384 keeps ~264/268), or accept the loss.
+
+### Debugging tip: measure token lengths safely
+
+Don't call `tokenizer(text)` positionally on the Colab path -- the VLM
+processor treats the first positional argument as images and crashes with
+`ValueError: Incorrect image source. Got <|im_start|>system ...`. Always
+use the inner text tokeniser for length diagnostics:
+
+```python
+_text_tok = getattr(tokenizer, "tokenizer", tokenizer)
+lens = [len(_text_tok(r["text"])["input_ids"]) for r in train_ds]
+print(f"max={max(lens)}  > 12288: {sum(1 for l in lens if l > 12288)}")
+```
