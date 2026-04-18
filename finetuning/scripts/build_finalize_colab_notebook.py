@@ -465,7 +465,10 @@ if CHAT_FAMILY == "qwen":
             "PARAMETER top_p 0.8\n"
             "PARAMETER top_k 20\n"
             "PARAMETER repeat_penalty 1.05\n"
-            "PARAMETER num_ctx 8192\n"
+            "# DeepAgent telegram+persona+62-tool first turn lands ~9.3K tokens;\n"
+            "# 8192 silently truncated and surfaced as Ollama parser EOF. 16384\n"
+            "# gives headroom for multi-turn tool histories.\n"
+            "PARAMETER num_ctx 16384\n"
             "\n"
             f'SYSTEM """{SYSTEM_PROMPT}"""\n'
         )
@@ -506,7 +509,8 @@ if CHAT_FAMILY == "qwen":
             "PARAMETER top_p 0.8\n"
             "PARAMETER top_k 20\n"
             "PARAMETER repeat_penalty 1.05\n"
-            "PARAMETER num_ctx 8192\n"
+            "# 16384 ctx leaves headroom for the full DeepAgent context.\n"
+            "PARAMETER num_ctx 16384\n"
             'PARAMETER stop "<|im_end|>"\n'
             'PARAMETER stop "<|im_start|>"\n'
             'PARAMETER stop "<|endoftext|>"\n'

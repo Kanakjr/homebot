@@ -175,7 +175,10 @@ PARAMETER temperature 0.7
 PARAMETER top_p 0.8
 PARAMETER top_k 20
 PARAMETER repeat_penalty 1.05
-PARAMETER num_ctx 8192
+# DeepAgent's full telegram+persona+62-tool context lands around 9.3K tokens
+# on the first turn; 8192 was silently truncating and masking itself as
+# Ollama parser EOF. Bump further only if tool count grows.
+PARAMETER num_ctx 16384
 
 SYSTEM """You are HomeBotAI, an intelligent smart-home assistant powered by Home Assistant.
 The home is in India (IST timezone). Resident: Kanak.
@@ -209,7 +212,9 @@ PARAMETER temperature 0.7
 PARAMETER top_p 0.8
 PARAMETER top_k 20
 PARAMETER repeat_penalty 1.05
-PARAMETER num_ctx 8192
+# DeepAgent full context lands around 9.3K tokens (persona+telegram+62 tools).
+# 8192 silently truncated; 16384 gives headroom for multi-turn tool histories.
+PARAMETER num_ctx 16384
 PARAMETER stop "<|im_end|>"
 PARAMETER stop "<|im_start|>"
 PARAMETER stop "<|endoftext|>"

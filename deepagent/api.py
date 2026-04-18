@@ -197,6 +197,12 @@ async def chat_stream(req: ChatRequest):
         choices_emitted = False
         pending_tool_times: dict[str, float] = {}
         last_tool_results: list[str] = []
+        # Dedup per-request: every message already in the checkpoint (prior
+        # turns) and every message we have already surfaced as an event in this
+        # request. Fixes the replay bug where astream's first chunk includes
+        # the accumulated history, causing each turn to re-emit every earlier
+        # AIMessage as a fresh response event.
+        seen_msg_keys: set = set()
 
         try:
             yield _sse("thinking", {"type": "thinking"})
@@ -204,6 +210,8 @@ async def chat_stream(req: ChatRequest):
             run_config = {"configurable": {"thread_id": req.thread_id}}
             if req.tags:
                 run_config["tags"] = req.tags
+
+            seen_msg_keys.update(await _existing_message_keys(agent, run_config))
 
             user_content = _build_user_content(req.message, req.images)
 
@@ -218,6 +226,10 @@ async def chat_stream(req: ChatRequest):
                     messages = _extract_messages(update)
                     log.debug("node=%s msgs=%d", node_name, len(messages))
                     for msg in messages:
+                        key = _msg_key(msg)
+                        if key in seen_msg_keys:
+                            continue
+                        seen_msg_keys.add(key)
                         log.debug("  msg type=%s content=%r tool_calls=%s",
                                   type(msg).__name__,
                                   (msg.content[:200] if hasattr(msg, 'content') else ''),
@@ -368,6 +380,45 @@ def _extract_messages(update) -> list:
     if isinstance(msgs, list):
         return msgs
     return []
+
+
+def _msg_key(msg) -> tuple:
+    """Return a stable de-dup key for a message.
+
+    Prefers the LangChain-assigned ``id``; falls back to a content hash so
+    messages without ids still compare equal across replays.
+    """
+    mid = getattr(msg, "id", None)
+    if mid:
+        return ("id", mid)
+    kind = type(msg).__name__
+    content = getattr(msg, "content", "")
+    if isinstance(content, list):
+        content_repr = json.dumps(content, default=str, sort_keys=True)
+    else:
+        content_repr = str(content)
+    tool_calls = getattr(msg, "tool_calls", None) or []
+    tc_repr = json.dumps(tool_calls, default=str, sort_keys=True) if tool_calls else ""
+    return (kind, content_repr[:4000], tc_repr)
+
+
+async def _existing_message_keys(agent, run_config) -> set:
+    """Return dedup keys for messages already in the thread's checkpoint state.
+
+    These messages arrive in ``astream``'s first chunk (as part of the loaded
+    prior state) and would otherwise be re-emitted as response / tool_call /
+    tool_result events on every turn.
+    """
+    try:
+        snapshot = await agent.aget_state(run_config)
+    except Exception:
+        log.debug("aget_state failed; continuing with empty seen set", exc_info=True)
+        return set()
+    values = getattr(snapshot, "values", None) or {}
+    messages = values.get("messages") if isinstance(values, dict) else None
+    if not isinstance(messages, list):
+        return set()
+    return {_msg_key(m) for m in messages}
 
 
 def _build_user_content(text: str, images: list) -> list | str:

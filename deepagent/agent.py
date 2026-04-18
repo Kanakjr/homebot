@@ -9,7 +9,7 @@ from deepagents.backends.utils import create_file_data
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, RemoveMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 import config
@@ -21,11 +21,24 @@ MAX_HUMAN_TURNS = int(os.getenv("MAX_HUMAN_TURNS", "5"))
 
 
 class MessageWindowMiddleware(AgentMiddleware):
-    """Trim conversation history to the last N human turns before each model call.
+    """Keep conversation state bounded to the last N human turns.
 
-    Keeps all messages (AI, tool) that belong to those turns so tool-call /
-    tool-result pairs stay intact.  Earlier messages are silently dropped,
-    keeping the context window small and costs predictable.
+    Two complementary trims, same window:
+
+    1. ``awrap_model_call`` -- trims messages in-flight to the LLM so the
+       model never sees more than the window, regardless of what's in state.
+    2. ``aafter_agent`` -- emits ``RemoveMessage`` updates so the persisted
+       graph state (SQLite checkpoint) itself never grows past the window.
+
+    The second step is the critical one: without it, ``checkpoints.db`` keeps
+    a full snapshot of every historical message at every step. On the live
+    Telegram thread we ended up with 192+ messages replicated across 500+
+    checkpoint rows (~1.6 GB). SQLite under disk pressure then slowed commits
+    enough that python-telegram-bot retried its send, producing duplicate
+    replies on the user's phone (the "messages repeat" bug).
+
+    Keeping the window narrow at the STATE level means each checkpoint row
+    stays kilobytes, not megabytes, no matter how long the conversation runs.
     """
 
     def __init__(self, max_human_turns: int = MAX_HUMAN_TURNS):
@@ -35,21 +48,62 @@ class MessageWindowMiddleware(AgentMiddleware):
         trimmed = _trim_to_last_n_human(request.messages, self._max_human_turns)
         if len(trimmed) < len(request.messages):
             log.debug(
-                "MessageWindow: trimmed %d -> %d messages (last %d human turns)",
+                "MessageWindow: trimmed %d -> %d messages for LLM (last %d human turns)",
                 len(request.messages), len(trimmed), self._max_human_turns,
             )
         return await handler(request.override(messages=trimmed))
 
+    async def aafter_agent(self, state, runtime):
+        """Drop out-of-window messages from the persisted graph state.
+
+        Returns a state-update dict containing ``RemoveMessage`` entries; the
+        ``add_messages`` reducer on the ``messages`` channel interprets those
+        as "remove by id", shrinking the state before the next checkpoint is
+        written.  Messages without a stable ``id`` cannot be referenced this
+        way and are left alone (they will be trimmed again on the next turn
+        once LangGraph assigns them ids).
+        """
+        messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+        if not messages:
+            return None
+
+        cutoff = _window_cutoff_index(messages, self._max_human_turns)
+        if cutoff <= 0:
+            return None
+
+        to_remove = []
+        for msg in messages[:cutoff]:
+            msg_id = getattr(msg, "id", None)
+            if msg_id:
+                to_remove.append(RemoveMessage(id=msg_id))
+        if not to_remove:
+            return None
+
+        log.info(
+            "MessageWindow: pruning %d old messages from state (keeping last ~%d human turns, %d remain)",
+            len(to_remove), self._max_human_turns, len(messages) - cutoff,
+        )
+        return {"messages": to_remove}
+
 
 def _trim_to_last_n_human(messages: list, n: int) -> list:
     """Return the tail of *messages* starting from the n-th-last HumanMessage."""
+    cutoff = _window_cutoff_index(messages, n)
+    return messages[cutoff:] if cutoff > 0 else messages
+
+
+def _window_cutoff_index(messages: list, n: int) -> int:
+    """Index of the first message inside the last ``n`` human turns.
+
+    Returns 0 when there are fewer than ``n`` human turns so the caller
+    treats the message list as already in-window.
+    """
     human_indices = [
         i for i, m in enumerate(messages) if isinstance(m, HumanMessage)
     ]
     if len(human_indices) <= n:
-        return messages
-    cutoff = human_indices[-n]
-    return messages[cutoff:]
+        return 0
+    return human_indices[-n]
 
 
 _SYSTEM_PROMPT_BASE = """\
@@ -317,13 +371,27 @@ def _load_memory_files() -> dict:
 def _resolve_model(model_spec: str) -> str | BaseChatModel:
     """Turn provider:model into a chat model.
 
-    - Ollama needs an explicit base_url (not localhost inside Docker).
-    - Gemini 2.5 models default to "thinking mode" which consumes the entire
-      output budget on chain-of-thought before producing tool calls or text,
-      leading to empty streamed responses. We disable it with
+    - Ollama fine-tunes (``ollama:homebot-*``) go through ChatOllamaRaw,
+      which calls /api/generate with a hand-rolled ChatML prompt and parses
+      ``<tool_call>`` blocks client-side. Ollama 0.21's built-in qwen3.5
+      renderer rewrites the system prompt in a Qwen3-Coder style that our
+      fine-tunes were not trained on, producing XML parse errors under the
+      full DeepAgent context (persona + telegram + 62 tools).
+    - Other Ollama models keep the standard ChatOllama -- their renderer
+      and parser work fine with an explicit base_url (not localhost inside
+      Docker).
+    - Gemini 2.5 models default to "thinking mode" which consumes the
+      entire output budget on chain-of-thought before producing tool calls
+      or text, leading to empty streamed responses. We disable it with
       ``thinking_budget=0`` unless the caller overrides via env.
     """
     if model_spec.startswith("ollama:"):
+        model_name = model_spec.split(":", 1)[1]
+        if model_name.startswith("homebot-"):
+            from ollama_raw_chat import ChatOllamaRaw
+
+            log.info("Using ChatOllamaRaw for %s (bypasses Ollama renderer/parser)", model_spec)
+            return ChatOllamaRaw(base_url=config.OLLAMA_URL, model=model_name)
         return init_chat_model(model_spec, base_url=config.OLLAMA_URL)
 
     if model_spec.startswith("google_genai:") or model_spec.startswith("gemini:"):
