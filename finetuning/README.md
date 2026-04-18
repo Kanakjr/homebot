@@ -1,62 +1,252 @@
-# Qwen 3.5 DeepAgent Tool-Calling Finetuning (Distillation Pipeline)
+# Qwen3.5-4B HomeBot Fine-tune (Distillation Pipeline)
 
-This folder contains the complete pipeline to fine-tune a **Qwen 3.5 (0.8B/2B)** model to flawlessly execute the `deepagent` skills using an automated **Teacher-Student Distillation Loop**.
+This folder contains the end-to-end pipeline to fine-tune **Qwen3.5-4B** into a
+drop-in replacement for the Gemini-backed `deepagent` runtime. It combines a
+**teacher-student distillation loop** with **real Telegram chat history** to
+produce a hybrid multi-turn ChatML dataset, then trains a bf16 LoRA on a free
+Colab T4 and exports a Q4_K_M GGUF that plugs into Ollama.
 
-Instead of guessing synthetic JSON structures, this pipeline forces a massive Teacher model (e.g. Gemini 2.5) to actively drive your **live `deepagent` core**. It hooks directly into your production Docker container via HTTP, extracting perfect tool-calling traces from LangSmith to act as the golden dataset for the Student model.
+After training, flipping `MODEL=ollama:homebot-qwen3_5` in the deepagent env is
+all it takes to swap from Gemini to the local model.
 
-## 📁 Architecture
+## Why Qwen3.5-4B, bf16 LoRA?
 
-1. **`dataset_generator.py` (The Grounder)**: Crawls your real `SKILL.md` entities to provide exact context to Gemini 2.5 Pro, generating 50-100+ highly realistic, colloquial string inputs.
-2. **`run_deepagent_simulation.py` (The HTTP Teacher)**: Rather than wrestling with Python dependencies in an isolated virtual environment, this script acts as an API Client. It fires `POST` payload requests strictly to your **live `deepagent` FastAPI backend**, dynamically intercepting SSE chunks.
-    *   **Auto-Repair**: Extremely powerful zero-shot models often hallucinate text instead of emitting JSON tools. If the live SSE stream misses the `tool_calls` event, the simulator natively loops and generates a multi-turn repair prompt (`You did not use a tool...`) to guarantee the Teacher perfectly completes the task.
-3. **`langsmith_client.py` (The Extractor)**: Native tracing integration! Connects to LangSmith and pulls all runs securely tagged with `distillation_simulation`.
-4. **`dataset_formatter.py` (The Packager) - *Pending***: Strips out the multi-turn repair hallucinatory turns and stitches the golden tool calls directly against the zero-shot user queries, converting them into Qwen ChatML JSONL.
+| Candidate | Size | Fits free T4? | Ollama GGUF? | Verdict |
+|---|---|---|---|---|
+| Qwen3.6-35B-A3B | 35B MoE | No | No (requires mmproj) | rejected -- only size available |
+| Qwen3.5-4B | 4B dense | Yes (10 GB bf16 LoRA) | Yes | **SELECTED** |
+| Qwen3.5-2B | 2B dense | Yes (5 GB bf16 LoRA) | Yes | fallback if 4B OOMs on T4 |
+| Qwen3-4B-Instruct-2507 | 4B dense | Yes (6 GB 4-bit) | Yes | older family, Qwen3.5 preferred |
 
-## 🚀 Execution Guide
+Unsloth explicitly warns that 4-bit QLoRA on Qwen3.5 produces *"higher than
+normal quantization differences."* We therefore use **bf16 LoRA** (trades ~2x
+VRAM for better accuracy -- still fits 16 GB T4). Thinking mode is disabled by
+default on small Qwen3.5 models, which is exactly what we want for
+deterministic tool calls.
 
-This pipeline is fully containerized inside its own `.venv` environment to avoid modifying your main homebot core. Everything runs seamlessly via the `./run_pipeline.sh` orchestrator.
+## Architecture
+
+```
+Telegram threads        SKILL.md contexts
+ in LangSmith              (~7 skill families)
+       |                         |
+       |                         v
+       |                dataset_generator.py
+       |                (clustered per skill,
+       |                 300 queries total)
+       |                         |
+       |                         v
+       |               run_deepagent_simulation.py
+       |                (POST live deepagent,
+       |                 tagged distillation_simulation)
+       |                         |
+       |                         v
+       |                  LangSmith traces
+       |                         |
+       v                         v
+extract_telegram_dataset.py  langsmith_client.py +
+ (multi-turn ChatML,           dataset_formatter.py
+  real conversations)         (multi-turn ChatML,
+       |                       full tool loops)
+       \                         /
+        \                       /
+         v                     v
+               merge_datasets.py
+            (dedup + 90/10 split)
+                    |
+                    v
+     data/qwen3_5_training.jsonl
+     data/qwen3_5_val.jsonl
+                    |
+                    v
+               push_to_hub.py
+          (kanakjr/homebot-qwen3.5)
+                    |
+                    v
+   unsloth_qwen3_5_4b_homebot.ipynb
+         (Colab T4, bf16 LoRA)
+                    |
+                    v
+     homebot-qwen3_5.Q4_K_M.gguf
+                    |
+                    v
+      ollama create homebot-qwen3_5
+                    |
+                    v
+        MODEL=ollama:homebot-qwen3_5
+```
+
+## Training Example Shape
+
+Every training row is one multi-turn conversation covering the full agent loop,
+so the fine-tuned model learns to both emit tool calls AND synthesize the final
+natural-language response from tool outputs:
+
+```json
+{"messages": [
+  {"role": "system", "content": "You are HomeBotAI, ..."},
+  {"role": "user", "content": "turn off the air purifier"},
+  {"role": "assistant", "content": "", "tool_calls": [
+    {"id": "c1", "type": "function",
+     "function": {"name": "ha_call_service",
+                  "arguments": "{\"domain\":\"fan\",\"service\":\"turn_off\",\"entity_id\":\"fan.air_purifier\"}"}}
+  ]},
+  {"role": "tool", "tool_call_id": "c1", "name": "ha_call_service",
+   "content": "{\"success\": true}"},
+  {"role": "assistant", "content": "Done -- air purifier is off."}
+]}
+```
+
+## File Layout
+
+| File | Role |
+|---|---|
+| `dataset_generator.py` | Clustered per-skill synthetic query generator (Gemini 2.5 Pro, 300 queries default) |
+| `run_deepagent_simulation.py` | Fires queries at the live deepagent HTTP stream, auto-repairs missing tool calls |
+| `langsmith_client.py` | Downloads `distillation_simulation`-tagged traces -> `data/langsmith_export.jsonl` |
+| `dataset_formatter.py` | Multi-turn formatter: walks full LangSmith chain -> `data/qwen_training_dataset.jsonl` |
+| `extract_telegram_dataset.py` | Pulls real `telegram-*` threads from LangSmith -> `data/real_telegram.jsonl` |
+| `merge_datasets.py` | Dedup + 90/10 split -> `data/qwen3_5_training.jsonl` + `data/qwen3_5_val.jsonl` |
+| `push_to_hub.py` | Push merged splits to `kanakjr/homebot-qwen3.5` on HF Hub |
+| `run_pipeline.sh` | Orchestrator wrapping every step (see `Commands` below) |
+| `unsloth_qwen3_5_4b_homebot.ipynb` | Colab T4 notebook: bf16 LoRA, `train_on_responses_only`, GGUF Q4_K_M |
+| `homebot_qwen3_5.Modelfile` | Ollama Modelfile with Qwen3.5 sampling params + tool_call template |
+| `requirements.txt` | Python deps for local pipeline (not Colab) |
+
+## Execution Guide
 
 ### 1. Initial Setup
-The `run_pipeline.sh` bash script automatically creates the `finetuning/.venv` and installs standard requirements (`python-dotenv`, `requests`, `langchain`, `google-genai`).
 
-**Keys and Configs**: 
-Because we proxy all simulation requests through HTTP directly to the deployed native bot, the simulation script smartly reaches into `../deepagent/.env` to read `API_KEY` and `LANGSMITH_PROJECT`. No painful environment variable duplication required! Just make sure your API keys are correct inside the `deepagent` folder.
+`run_pipeline.sh` automatically creates `finetuning/.venv` and installs from
+`requirements.txt` on first run. Credentials are read from
+`../deepagent/.env`:
 
-### 2. Run the Pipeline
+- `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` -- required for both the synthetic
+  extract (`extract`) and the real-telegram extract (`real`).
+- `GEMINI_API_KEY` -- required for `generate`.
+- `HF_TOKEN` -- required for `push` (optional for Colab load).
+- `API_KEY` -- required for `simulate` (deepagent HTTP auth).
 
-You can kick off the entire distillation workflow step-by-step:
+If you're behind a corporate proxy, remember to:
 
-#### A. Generate Synthetic Queries
-Parses your `SKILL.md` instructions and builds `data/synthetic_queries.json`:
 ```bash
-./run_pipeline.sh generate
+source ~/Workspace/set-proxy.sh
 ```
 
-#### B. Simulate the Teacher (Live Run)
-Fires the queries over HTTP (`http://localhost:8322/api/chat/stream`) against your live dashboard backend.
-*⚠️ WARNING: Because this hits your live bot, it WILL turn on actual lights and ping actual services.*
-```bash
-# Test with only 1 query:
-./run_pipeline.sh simulate --limit 1
+before running the scripts.
 
-# Or run the full production batch!
-./run_pipeline.sh simulate
+### 2. Build the dataset
+
+```bash
+cd Apps/homebot/finetuning
+
+./run_pipeline.sh generate                    # 300 synthetic queries, clustered per skill
+./run_pipeline.sh simulate --limit 50          # fire at live deepagent; WARNING: real side effects
+./run_pipeline.sh extract                      # pull distillation_simulation traces from LangSmith
+./run_pipeline.sh format                       # synthetic traces -> multi-turn ChatML JSONL
+./run_pipeline.sh real --days 60               # real telegram history -> multi-turn ChatML JSONL
+./run_pipeline.sh merge                        # dedup, 90/10 split
+./run_pipeline.sh push                         # push to kanakjr/homebot-qwen3.5 on HF Hub
 ```
 
-#### C. Extract the Golden Traces
-Downloads the perfectly tagged traces from LangSmith into `data/langsmith_export.jsonl`:
+Each step is idempotent: re-running `format`/`real`/`merge`/`push` after adding
+new traces is cheap (dedup keeps duplicates out). Use `./run_pipeline.sh all`
+to run every step back-to-back.
+
+Inspect the produced dataset locally:
+
 ```bash
-./run_pipeline.sh extract
+head -n 1 data/qwen3_5_training.jsonl | python -m json.tool | head -60
+wc -l data/qwen3_5_training.jsonl data/qwen3_5_val.jsonl
 ```
 
-#### D. Format for Qwen
-Converts the traces into the strict Unsloth ChatML schema:
+### 3. Train on Google Colab
+
+1. Open `unsloth_qwen3_5_4b_homebot.ipynb` in Colab with a **T4 GPU** runtime.
+2. Choose one of two data-load options:
+   - **Local upload (default):** `USE_HUB = False`. Step 5 opens a file picker
+     -- drag `qwen3_5_training.jsonl` + `qwen3_5_val.jsonl` in, done.
+   - **HF Hub:** Add `HF_TOKEN` as a Colab Secret (Runtime -> Secrets), flip
+     `USE_HUB = True`, and the notebook pulls `kanakjr/homebot-qwen3.5`.
+3. `Runtime -> Run all`. Expect ~20-30 minutes for 2 epochs on T4 at bf16.
+4. Step 16 writes `homebot-qwen3_5.Q4_K_M.gguf` (~2.5 GB) + a ready-to-use
+   `homebot_qwen3_5.Modelfile`. Download both via the Colab file browser.
+
+**Tuning knobs** (in the notebook):
+
+- `REAL_OVERSAMPLE` (step 5.5, default 4): how many times to duplicate each
+  real Telegram row in the train set. With 16 real rows, 4x => 64 -- target
+  a synthetic:real ratio of ~3:1 after oversampling.
+- Under-fit after 2 epochs? bump `r` and `lora_alpha` to 32 in step 3.
+- OOM on T4? switch `MODEL_NAME = "unsloth/Qwen3.5-2B"` (5 GB LoRA).
+- Want longer context? increase `MAX_SEQ_LENGTH` to 8192 (costs VRAM).
+
+The merge step already prints a `[merge] WARNING: synthetic/real ratio is
+N/M (>=5x)` line when the dataset is skewed; that's your cue to bump
+`REAL_OVERSAMPLE` or run `./run_pipeline.sh real --days 365 --limit 5000`
+to pull more authentic Telegram history before re-merging.
+
+### 4. Deploy locally via Ollama
+
+Place the downloaded `homebot-qwen3_5.Q4_K_M.gguf` next to
+`homebot_qwen3_5.Modelfile`, then:
+
 ```bash
-./run_pipeline.sh format
+cd Apps/homebot/finetuning
+ollama create homebot-qwen3_5 -f homebot_qwen3_5.Modelfile
+
+# Smoke test
+ollama run homebot-qwen3_5 "turn off the air purifier"
 ```
 
-### 3. Native Model Training
+Flip the deepagent over by setting in `Apps/homebot/deepagent/.env`:
 
-Upload the generated `.jsonl` dataset to Google Colab.
+```
+MODEL=ollama:homebot-qwen3_5
+```
 
-Attach a standard T4 GPU, open `unsloth_qwen_tool_lora.ipynb`, and run all blocks. It natively fine-tunes the lightweight Qwen model using 4-bit quantization, exporting the `.gguf` architecture so you can mount it directly back into `homebot` using Ollama!
+`deepagent/agent.py::_resolve_model` already handles the `ollama:` prefix.
+
+## Data Quality Gates
+
+The `format` and `real` stages share a single cleanup pipeline
+(`extract_telegram_dataset.py`) that enforces:
+
+- **Entity rename + drop.** `ENTITY_RENAMES` rewrites renamed Home Assistant
+  entity IDs (e.g. `fan.xiaomi_smart_air_purifier_4` -> `fan.air_purifier`).
+  `DROP_ENTITY_TOKENS` (incl. `HA_HIDDEN_ENTITIES`) discards any chain that
+  still references a removed/hidden entity so the model never learns dead IDs.
+- **Repair-prompt splice.** The simulator's nudge ("You did not actually
+  perform the action...") and the preceding hallucinated assistant turn are
+  spliced out, so the model is NOT trained to wait for a nag before tool
+  calling.
+- **Reasoning-tag strip.** `<thinking>` / `<think>` / `<reasoning>` blocks
+  (common in Gemini 2.5/3 output) are removed from assistant content.
+- **Tool-call JSON validation.** Every `tool_call.function.arguments` string
+  is `json.loads`'d; any malformed tool call drops the whole chain.
+- **Min-length final response.** Final assistant text must be >=3 words;
+  "Done." / "" -only completions are discarded.
+- **Tool output truncation.** Tool results >4000 chars are clamped.
+- **System-prompt re-injection.** The stored trace's system prompt is
+  overwritten with the live `get_system_prompt()` at format time, so training
+  always matches current production behavior.
+- **Dedup.** Sha256 of (role, content, tool_call signature) excluding system;
+  real-source rows win on collision with synthetic duplicates.
+- **Spot-check.** `merge` prints 5 random sampled training examples and warns
+  if synthetic >> real.
+
+## Tips & Gotchas
+
+- **`simulate` WILL cause real side effects** (lights toggle, torrents queue,
+  movies added to Radarr). Use `--limit 1` first and keep an eye on LangSmith.
+- The formatter picks the LangSmith trace with the **longest input history**
+  per user query -- this is how we capture the full multi-turn chain instead
+  of the first tool call only.
+- `merge_datasets.py` prefers `telegram`-sourced conversations over synthetic
+  duplicates, so your real voice dominates where they overlap.
+- If the Colab `apply_chat_template` rendering looks wrong (missing tool
+  delimiters), print `train_ds[0]["text"]` in step 6 to confirm; the shape
+  should include `<|im_start|>tool` blocks.
+- The Modelfile ships with a compact fallback SYSTEM prompt for direct
+  `ollama run` debugging; at runtime the deepagent injects its authoritative
+  system prompt via the LangChain chat interface, which takes precedence.

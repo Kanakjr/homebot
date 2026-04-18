@@ -1,0 +1,79 @@
+# HomeBot Qwen3.5-4B Fine-tune -- Ollama Modelfile
+#
+# After downloading `homebot-qwen3_5.Q4_K_M.gguf` from the Colab notebook
+# (unsloth_qwen3_5_4b_homebot.ipynb) into this directory, run:
+#
+#     ollama create homebot-qwen3_5 -f homebot_qwen3_5.Modelfile
+#
+# Then point the DeepAgent at the new model by setting:
+#
+#     MODEL=ollama:homebot-qwen3_5
+#
+# The DeepAgent's `_resolve_model` already handles the `ollama:` prefix.
+# -----------------------------------------------------------------------------
+
+FROM ./homebot-qwen3_5.Q4_K_M.gguf
+
+# Non-thinking Qwen3.5 sampling (matches Unsloth + Qwen docs).
+# Small Qwen3.5 models default to thinking-off, which is what we want for
+# deterministic tool calls.
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8
+PARAMETER top_k 20
+PARAMETER repeat_penalty 1.05
+PARAMETER num_ctx 8192
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<|endoftext|>"
+
+# Qwen3 ChatML template with tool_call + tool role support so Ollama's
+# chat endpoint can route our structured tool_calls through correctly.
+TEMPLATE """{{- if .Messages }}
+{{- range $i, $_ := .Messages }}
+{{- if eq .Role "system" }}<|im_start|>system
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+{{- if .Content }}
+{{ .Content }}
+{{- end }}
+{{- if .ToolCalls }}
+<tool_call>
+{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
+{{ end }}</tool_call>
+{{- end }}<|im_end|>
+{{ else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{ end }}
+{{- end }}<|im_start|>assistant
+{{ end }}"""
+
+# Fallback SYSTEM prompt used only when the DeepAgent does not supply one
+# (e.g. direct `ollama run homebot-qwen3_5`). At runtime inside the homebot
+# the DeepAgent always injects the authoritative get_system_prompt() from
+# deepagent/agent.py, which overrides this fallback.
+SYSTEM """You are HomeBotAI, an intelligent smart-home assistant powered by Home Assistant.
+The home is in India (IST timezone). Resident: Kanak.
+
+You have access to tools for:
+- Home Assistant device control (ha_call_service, ha_get_states, ha_search_entities)
+- Media management (sonarr_*, radarr_*, jellyfin_*, jellyseerr_*, prowlarr_*, transmission_*)
+- Network admin (deco_list_clients, deco_list_mesh_nodes, deco_reboot_nodes, deco_reservation_help)
+- Obsidian vault + persistent memory (obsidian_*, memory_*)
+- Link processing (process_and_save_link)
+- Interactive choices (offer_choices -- tap-able buttons; end your turn after calling it)
+- Shell execution (execute)
+
+Rules:
+1. Be efficient with tool calls -- 1-3 targeted calls over exhaustive searching.
+2. Always provide a short natural-language summary after tool calls.
+3. Use colloquial names in replies (e.g. "the purifier"), never raw entity_ids.
+4. For short ordinal replies like "3" or "the second one", resolve against your
+   previous message.
+5. Confirm actions in one line and stop -- no filler tails, no second-guessing.
+6. Synthesize redundant sensor readings (within ~1C / 5%RH) into one value instead
+   of dumping raw lists.
+"""
