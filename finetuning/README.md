@@ -1,22 +1,28 @@
-# Qwen3.5-4B HomeBot Fine-tune (Distillation Pipeline)
+# Qwen3.5 HomeBot Fine-tune (Distillation Pipeline)
 
-This folder contains the end-to-end pipeline to fine-tune **Qwen3.5-4B** into a
-drop-in replacement for the Gemini-backed `deepagent` runtime. It combines a
-**teacher-student distillation loop** with **real Telegram chat history** to
+This folder contains the end-to-end pipeline to fine-tune **Qwen3.5** (2B or 4B)
+into a drop-in replacement for the Gemini-backed `deepagent` runtime. It combines
+a **teacher-student distillation loop** with **real Telegram chat history** to
 produce a hybrid multi-turn ChatML dataset, then trains a bf16 LoRA on a free
 Colab T4 and exports a Q4_K_M GGUF that plugs into Ollama.
 
-After training, flipping `MODEL=ollama:homebot-qwen3_5` in the deepagent env is
-all it takes to swap from Gemini to the local model.
+The Colab notebook exposes `MODEL_SIZE` (`"2B"` or `"4B"`) as a single knob --
+everything else (LoRA attach, chat template, SFT loop, GGUF export, Ollama
+Modelfile) is identical across sizes because it follows Unsloth's official
+Qwen3.5 recipe. Recommended flow: run 2B first for a fast sanity loop, then
+switch to 4B for the final ship build.
 
-## Why Qwen3.5-4B, bf16 LoRA?
+After training, flipping `MODEL=ollama:homebot-qwen3_5-<size>` in the deepagent
+env is all it takes to swap from Gemini to the local model.
 
-| Candidate | Size | Fits free T4? | Ollama GGUF? | Verdict |
+## Why Qwen3.5, bf16 LoRA?
+
+| Candidate | Size | T4 VRAM (bf16 LoRA) | ~2 epoch wall-clock | Role |
 |---|---|---|---|---|
-| Qwen3.6-35B-A3B | 35B MoE | No | No (requires mmproj) | rejected -- only size available |
-| Qwen3.5-4B | 4B dense | Yes (10 GB bf16 LoRA) | Yes | **SELECTED** |
-| Qwen3.5-2B | 2B dense | Yes (5 GB bf16 LoRA) | Yes | fallback if 4B OOMs on T4 |
-| Qwen3-4B-Instruct-2507 | 4B dense | Yes (6 GB 4-bit) | Yes | older family, Qwen3.5 preferred |
+| **Qwen3.5-2B** | 2B dense | ~5 GB  | ~8 min  | **fast first pass** -- sanity-check pipeline |
+| **Qwen3.5-4B** | 4B dense | ~10 GB | ~20 min | **final ship build** |
+| Qwen3.6-35B-A3B | 35B MoE | No fit | -- | rejected: MoE too large for free T4 |
+| Qwen3-4B-Instruct-2507 | 4B dense | ~6 GB 4-bit | ~15 min | older family, Qwen3.5 preferred |
 
 Unsloth explicitly warns that 4-bit QLoRA on Qwen3.5 produces *"higher than
 normal quantization differences."* We therefore use **bf16 LoRA** (trades ~2x
@@ -64,16 +70,16 @@ extract_telegram_dataset.py  langsmith_client.py +
                     |
                     v
    unsloth_qwen3_5_4b_homebot.ipynb
-         (Colab T4, bf16 LoRA)
+         (Colab T4, bf16 LoRA, MODEL_SIZE="2B"|"4B")
                     |
                     v
-     homebot-qwen3_5.Q4_K_M.gguf
+     homebot-qwen3_5-{2b|4b}.Q4_K_M.gguf
                     |
                     v
-      ollama create homebot-qwen3_5
+   ollama create homebot-qwen3_5-{2b|4b}
                     |
                     v
-        MODEL=ollama:homebot-qwen3_5
+      MODEL=ollama:homebot-qwen3_5-{2b|4b}
 ```
 
 ## Training Example Shape
@@ -163,23 +169,28 @@ wc -l data/qwen3_5_training.jsonl data/qwen3_5_val.jsonl
 ### 3. Train on Google Colab
 
 1. Open `unsloth_qwen3_5_4b_homebot.ipynb` in Colab with a **T4 GPU** runtime.
-2. Choose one of two data-load options:
-   - **Local upload (default):** `USE_HUB = False`. Step 5 opens a file picker
-     -- drag `qwen3_5_training.jsonl` + `qwen3_5_val.jsonl` in, done.
-   - **HF Hub:** Add `HF_TOKEN` as a Colab Secret (Runtime -> Secrets), flip
-     `USE_HUB = True`, and the notebook pulls `kanakjr/homebot-qwen3.5`.
-3. `Runtime -> Run all`. Expect ~20-30 minutes for 2 epochs on T4 at bf16.
-4. Step 16 writes `homebot-qwen3_5.Q4_K_M.gguf` (~2.5 GB) + a ready-to-use
-   `homebot_qwen3_5.Modelfile`. Download both via the Colab file browser.
+2. In **Step 0** paste your HF write token, then pick a size:
+   - `MODEL_SIZE = "2B"` (default) -- ~5 GB VRAM, ~8 min for 2 epochs on T4.
+     Start here on the first end-to-end run.
+   - `MODEL_SIZE = "4B"` -- ~10 GB VRAM, ~20 min for 2 epochs on T4. Use for
+     the final ship build once the 2B run looks healthy.
+3. `Runtime -> Run all`. No other stops. The notebook pulls the dataset from
+   `kanakjr/homebot-qwen3.5` on HF Hub using the token from Step 0.
+4. Step 16 writes `homebot-qwen3_5-<size>.Q4_K_M.gguf` + a matching
+   `homebot-qwen3_5-<size>.Modelfile`. Download both via the Colab file
+   browser -- the size-suffixed filenames mean 2B and 4B builds never
+   overwrite each other in either Colab or Ollama.
 
 **Tuning knobs** (in the notebook):
 
+- `MODEL_SIZE` (step 0): `"2B"` or `"4B"` -- picks model, GGUF filename,
+  Ollama tag, and HF GGUF repo automatically.
 - `REAL_OVERSAMPLE` (step 5.5, default 4): how many times to duplicate each
   real Telegram row in the train set. With 16 real rows, 4x => 64 -- target
   a synthetic:real ratio of ~3:1 after oversampling.
-- Under-fit after 2 epochs? bump `r` and `lora_alpha` to 32 in step 3.
-- OOM on T4? switch `MODEL_NAME = "unsloth/Qwen3.5-2B"` (5 GB LoRA).
-- Want longer context? increase `MAX_SEQ_LENGTH` to 8192 (costs VRAM).
+- Under-fit after 2 epochs? bump `LORA_R` and `LORA_ALPHA` to 32 in step 0.
+- OOM on T4? use `MODEL_SIZE = "2B"` instead of `"4B"`.
+- Want longer context? increase `MAX_SEQ_LENGTH` to 8192 in step 0 (costs VRAM).
 
 The merge step already prints a `[merge] WARNING: synthetic/real ratio is
 N/M (>=5x)` line when the dataset is skewed; that's your cue to bump
@@ -188,24 +199,30 @@ to pull more authentic Telegram history before re-merging.
 
 ### 4. Deploy locally via Ollama
 
-Place the downloaded `homebot-qwen3_5.Q4_K_M.gguf` next to
-`homebot_qwen3_5.Modelfile`, then:
+Pick the build you want to deploy (`2b` or `4b`), place its GGUF next to its
+Modelfile, then:
 
 ```bash
 cd Apps/homebot/finetuning
-ollama create homebot-qwen3_5 -f homebot_qwen3_5.Modelfile
 
-# Smoke test
-ollama run homebot-qwen3_5 "turn off the air purifier"
+# 2B fast build
+ollama create homebot-qwen3_5-2b -f homebot-qwen3_5-2b.Modelfile
+ollama run homebot-qwen3_5-2b "turn off the air purifier"
+
+# 4B final build (can coexist with 2B -- different names)
+ollama create homebot-qwen3_5-4b -f homebot-qwen3_5-4b.Modelfile
+ollama run homebot-qwen3_5-4b "turn off the air purifier"
 ```
 
 Flip the deepagent over by setting in `Apps/homebot/deepagent/.env`:
 
 ```
-MODEL=ollama:homebot-qwen3_5
+MODEL=ollama:homebot-qwen3_5-2b    # or homebot-qwen3_5-4b
 ```
 
-`deepagent/agent.py::_resolve_model` already handles the `ollama:` prefix.
+`deepagent/agent.py::_resolve_model` already handles the `ollama:` prefix, so
+you can A/B the two builds just by editing this one line and restarting
+the deepagent.
 
 ## Data Quality Gates
 
