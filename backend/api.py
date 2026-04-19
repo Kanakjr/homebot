@@ -501,9 +501,9 @@ async def list_entities():
 
 @app.post("/api/entities/{entity_id}/toggle")
 async def toggle_entity(entity_id: str, req: ToggleRequest = ToggleRequest()):
-    """Toggle, turn_on, or turn_off a switch/light/fan entity via HA."""
+    """Toggle, turn_on, or turn_off a switch/light/fan/input_boolean entity via HA."""
     domain = entity_id.split(".")[0]
-    allowed = {"light", "switch", "fan", "automation", "scene"}
+    allowed = {"light", "switch", "fan", "automation", "scene", "input_boolean"}
     if domain not in allowed:
         raise HTTPException(status_code=400, detail=f"Domain '{domain}' not toggleable via this endpoint")
 
@@ -555,6 +555,44 @@ async def control_light(entity_id: str, req: LightControlRequest):
                     text = await resp.text()
                     raise HTTPException(status_code=resp.status, detail=text[:300])
                 return {"status": "ok", "entity_id": entity_id}
+    except aiohttp.ClientError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+class ScriptRunRequest(BaseModel):
+    """Optional data payload forwarded to the HA script service."""
+
+    data: dict[str, object] | None = None
+
+
+@app.post("/api/scripts/{script_id}")
+async def run_script(script_id: str, req: ScriptRunRequest = ScriptRunRequest()):
+    """Invoke a Home Assistant script by id, with optional data payload.
+
+    Equivalent to POST /api/services/script/<script_id> against HA. Useful for
+    triggering helper scripts (e.g. Alexa-driven RGB strip commands) from the
+    dashboard without wiring a bespoke endpoint for each one.
+    """
+    safe_id = "".join(c for c in script_id if c.isalnum() or c == "_")
+    if not safe_id or safe_id != script_id:
+        raise HTTPException(status_code=400, detail="Invalid script id")
+
+    url = f"{config.HA_URL}/api/services/script/{safe_id}"
+    headers = {
+        "Authorization": f"Bearer {config.HA_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload: dict = {}
+    if req.data:
+        payload.update(req.data)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    raise HTTPException(status_code=resp.status, detail=text[:300])
+                return {"status": "ok", "script": safe_id}
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=502, detail=str(e))
 

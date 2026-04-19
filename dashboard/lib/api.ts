@@ -334,6 +334,16 @@ export async function setLightState(
   });
 }
 
+export async function callScript(
+  scriptId: string,
+  data?: Record<string, unknown>,
+): Promise<{ status: string; script: string }> {
+  return fetchJSON(`/api/scripts/${encodeURIComponent(scriptId)}`, {
+    method: "POST",
+    body: JSON.stringify({ data: data ?? null }),
+  });
+}
+
 export async function setClimateState(
   entityId: string,
   params: { preset_mode?: string; fan_mode?: string; temperature?: number },
