@@ -152,6 +152,24 @@ Ollama integration enables local model execution for skill running, dashboard su
 
 A standalone LangChain Deep Agent service with 49 tools across 8 modules, running on port 8322. Features SKILL.md-based progressive skill loading and a model policy that routes between cloud and local LLMs. The dashboard chat includes a toggle to switch between the main agent and Deep Agent.
 
+### Voice Assistant (Gemini Live + Jarvis wake word)
+
+A hands-free "Hey Jarvis" voice interface that runs on the Mac mini and turns it into an Alexa-style device for the bedroom. openWakeWord listens locally on a single CPU core for the wake phrase; when it fires, a Gemini Live WebSocket session handles STT, reasoning, and TTS in one low-latency loop. Twelve function-calling tools are exposed directly -- lights, plugs, fans, the Alexa-proxied RGB LED strip, scenes, HA sensor summaries, Jellyfin sessions, Transmission downloads, and session control. Anything more complex (media discovery, Sonarr/Radarr adds, link processing, Obsidian memory) is routed through a single `delegate_to_homebot` tool that calls the Deep Agent's existing `/api/chat/stream` endpoint, so the voice module inherits everything the Deep Agent can do without duplicating it.
+
+Sessions auto-close after 30 s of silence or 13 min elapsed (below the 15 min Gemini Live cap), then the mic goes back to wake-word listening. Context window compression and session resumption are enabled.
+
+**Hardware for a proper Alexa-style setup:** a far-field USB mic with hardware AEC -- the [ReSpeaker XVF3800](https://wiki.seeedstudio.com/respeaker_xvf3800_usb/) is the reference pick (4-mic circular array, ~5 m pickup, on-board beamforming and echo cancellation). Without hardware AEC, Gemini's own output can bleed back into the mic; the session code mutes the mic during model speech as a fallback. Set `MIC_DEVICE_INDEX` in `voice/.env` after running `python -c "import sounddevice as sd; print(sd.query_devices())"`.
+
+**Run it:**
+
+```bash
+cd Apps/homebot
+source ~/Workspace/set-proxy.sh
+pip install -r voice/requirements.txt
+cp voice/.env.example voice/.env     # fill in GEMINI_API_KEY, HA_URL, HA_TOKEN, DEEPAGENT_URL
+python -m voice                       # or `python -m voice.main`
+```
+
 ## Architecture
 
 ![Architecture Diagram](docs/architecture.png)
@@ -174,6 +192,7 @@ homebot/
   backend/          Python AI agent, API, CLI, Telegram bot
   dashboard/        Next.js dashboard UI
   deepagent/        Standalone Deep Agent service (port 8322)
+  voice/            Wake-word + Gemini Live voice assistant (runs on the Mac mini)
   transcoder/       HandBrake transcoding service
   tests/            Backend + LLM benchmark tests
   docs/             MkDocs documentation site source

@@ -1,0 +1,9 @@
+openwakeword
+sounddevice
+soundfile
+numpy
+google-genai>=1.0.0
+aiohttp
+httpx[http2]
+httpx-sse
+python-dotenv

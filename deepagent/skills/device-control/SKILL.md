@@ -11,8 +11,8 @@ tags: [homeassistant, devices, control]
 ### Lights (2 in the home)
 | Entity ID | Friendly Name |
 |-----------|--------------|
-| `light.bedside` | Bedside lamp (white only) |
-| `light.table_lamp` | Table lamp (WiZ RGBW + tunable white, bedroom) |
+| `light.bedside` | Bedside lamp (TP-Link, HS color + tunable white 2500-6500K, accepts any `rgb_color`) |
+| `light.table_lamp` | Table lamp (WiZ RGBW + tunable white 2200-6500K, bedroom) |
 
 ### Alexa-proxy scripts (RGB LED strip)
 The Homemate RGB LED strip has no local API, so we control it by having HA speak
@@ -49,7 +49,31 @@ for this device.
 | Entity ID | Friendly Name |
 |-----------|--------------|
 | `camera.bedroom_camera_live_view` | Bedroom camera (often unavailable) |
-| `camera.printer` | 3D printer camera |
+| `camera.printer` | 3D printer camera (state is only `streaming` / `idle` — it does NOT tell you whether a print is running) |
+
+### 3D Printer (Bambu Lab A1, exposed via `ha-bambulab`)
+The printer is named `Printo`. To answer "what is the printer doing"
+or "what's the status of my 3D print", read these entities (NOT the
+`camera.printer` state -- that only reports the video stream):
+
+| Entity ID | What it tells you |
+|-----------|-------------------|
+| `binary_sensor.printer_online` | `on` if connected via MQTT |
+| `binary_sensor.printer_error` | `on` if the printer reports a fault |
+| `sensor.printer_current_stage` | Machine stage: `idle`, `printing`, `heatbed_preheating`, `auto_bed_leveling`, etc. |
+| `sensor.printer_status` | High-level status string (`running`, `idle`, ...) |
+| `sensor.printer_progress` | Print progress percentage (0-100) |
+| `sensor.printer_current_layer` / `sensor.printer_total_layers` | Layer progress |
+| `sensor.printer_remaining_time` | Minutes/hours left (unit varies; default hours) |
+| `sensor.printer_end_time`, `sensor.printer_start_time` | ISO timestamps |
+| `sensor.printer_task_name`, `sensor.printer_gcode` | Current job name |
+| `sensor.printer_bed_temp`, `sensor.printer_bed_target` | Bed temperature / target (°C) |
+| `sensor.printer_nozzle_temp`, `sensor.printer_nozzle_target` | Nozzle / hotend temperature / target (°C) |
+| `sensor.printer_spool` | Loaded filament (e.g. "Generic PLA") |
+
+Pause/resume/stop the printer via `button.printer_pause`,
+`button.printer_resume`, `button.printer_stop` (domain `button`,
+service `press`).
 
 There are also ~25 switch entities, but most are config toggles (auto-update, LED indicators, camera settings). The user-controllable switches are the two plugs listed above.
 
